@@ -17,8 +17,11 @@ unicode-normalization.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+llm-router = { path = "../llm-router", version = "0.1.0" }
 proptest.workspace = true
+serde.workspace = true
 tokio.workspace = true
+wiremock = "0.6.5"
 
 [lints]
 workspace = true

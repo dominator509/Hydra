@@ -1,0 +1,44 @@
+{
+  "route": "bridge_mapping",
+  "contract": "MappingYaml",
+  "max_tokens": 128,
+  "output_budget_bytes": 2048,
+  "response": "adapter: memcrm\nentity: deal\nfields:\n  stage: crm.stage\n  owner: crm.owner\n",
+  "segments": [
+    {
+      "stability": "S0",
+      "version": 1,
+      "text": "ROUTE=bridge_mapping You author deterministic bridge mappings for existing adapter fields only. ",
+      "repeat": 48
+    },
+    {
+      "stability": "S1",
+      "version": 2,
+      "text": "Return YAML only with adapter, entity, and fields top-level keys and no markdown fences. ",
+      "repeat": 48
+    },
+    {
+      "stability": "S2",
+      "version": 3,
+      "text": "Mapping policy keeps field names stable, diffs additive, and review artifacts small and reversible. ",
+      "repeat": 40
+    }
+  ],
+  "turns": [
+    "Map the current deal stage and owner fields for the CRM bridge.",
+    "Recheck the same mapping after the stage label set stayed unchanged.",
+    "Confirm the field mapping after the owner alias note was added.",
+    "Re-evaluate the same YAML after another schema introspection pass.",
+    "Check the mapping again after the bridge reviewer asked for no extra keys.",
+    "Regenerate the same YAML after the entity kind stayed deal.",
+    "Confirm the field mapping after the nightly bridge smoke stayed green.",
+    "Recheck the same YAML after another adapter diff review.",
+    "Validate the mapping again after the owner field description changed.",
+    "Regenerate the mapping after the stage field alias remained identical.",
+    "Check the same YAML after another conformance replay pass.",
+    "Confirm the bridge mapping after the latest schema snapshot.",
+    "Re-evaluate the same top-level keys after a policy reread.",
+    "Regenerate the mapping after another adapter probe output.",
+    "Confirm the same deterministic YAML for the final replay turn."
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "route": "bridge_codegen",
+  "contract": "UnifiedDiff",
+  "max_tokens": 128,
+  "output_budget_bytes": 2048,
+  "response": "--- a/wit/hydra-bridge.wit\n+++ b/wit/hydra-bridge.wit\n@@ -1 +1 @@\n-list\n+%list\n",
+  "segments": [
+    {
+      "stability": "S0",
+      "version": 1,
+      "text": "ROUTE=bridge_codegen You generate tiny reversible bridge diffs and never dump whole files. ",
+      "repeat": 48
+    },
+    {
+      "stability": "S1",
+      "version": 2,
+      "text": "Return a unified diff only, touching approved adapter and WIT files with exact headers and hunks. ",
+      "repeat": 48
+    },
+    {
+      "stability": "S2",
+      "version": 3,
+      "text": "Bridge canary policy keeps ABI names stable, grants explicit, test fixtures deterministic, and edits narrow. ",
+      "repeat": 40
+    }
+  ],
+  "turns": [
+    "Generate the tiny WIT escape diff for the reserved list export.",
+    "Regenerate the same bridge patch after the reviewer asked for exact hunk headers.",
+    "Recheck the diff after the adapter fixture comment changed.",
+    "Generate the same reversible patch after a second conformance pass.",
+    "Re-evaluate the diff after a teammate asked for no extra context lines.",
+    "Regenerate the patch after the WIT validator stayed red on the same export.",
+    "Check the bridge diff again after a fresh build-adapters run.",
+    "Reissue the minimal patch after the host linker output stayed unchanged.",
+    "Confirm the same one-hunk bridge fix after the nightly test replay.",
+    "Regenerate the patch after another ABI review comment landed.",
+    "Recheck the same narrow diff after the adapter name stayed frozen.",
+    "Generate the bridge patch again after the canary fixture was rebuilt.",
+    "Confirm the exact unified diff after the latest conformance rerun.",
+    "Re-evaluate the same patch after another WIT parse failure report.",
+    "Generate the final tiny bridge diff for the next cache replay pass."
+  ]
+}

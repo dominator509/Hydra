@@ -19,6 +19,7 @@
 | 0014 | EP-004 bridge-host uses Wasmtime 38 bindgen flags, scoped unsafe, and repo-local store bridging | Accepted | 2026-07-07 | Codex |
 | 0015 | EP-004 TOKENKILLER core uses canonicalization/hash deps plus local router and ledger seams | Accepted | 2026-07-07 | Codex |
 | 0016 | EP-004 llm-router M5 uses YAML route loading, provider fakes, and direct TOKENKILLER integration | Accepted | 2026-07-07 | Codex |
+| 0017 | EP-004 TOKENKILLER M6 uses warm replay fixtures and a self-bootstrapping cache-hit audit gate | Accepted | 2026-07-07 | Codex |
 
 ## ADR index
 ADRs live inline below; new ADRs append using `.agent/templates/adr-template.md`.
@@ -76,6 +77,12 @@ Context: EP-004 M5 needs a real multi-provider router with ordered route chains,
 Decision: add local `serde_yaml` and dev-only `wiremock` to `crates/llm-router`; keep `reqwest` behind a small local `JsonHttpClient` inside the crate for now; implement YAML-backed `RouteCfg` loading plus provider modules for Anthropic, DeepSeek, and OpenAI-compatible endpoints; have `llm-router::Router` implement `tokenkiller::Router` directly; and extend `tokenkiller::CompletionResponse` with the actual responding provider so fallback winners land truthfully in the ledger.
 Alternatives: wait for M7 to build `fabric::egress` before landing any real router/provider code (rejected: violates milestone order and blocks M6 replay work), call `reqwest` ad hoc from each provider without a shared client seam (rejected: harder to swap or audit later), or keep the ledger provider sourced only from the route's preferred provider name (rejected: incorrect as soon as fallback or degradation takes effect).
 Consequences: Hydra now has a real llm-router crate with deterministic route loading, chain traversal, structural PII enforcement, provider-aware accounting, and a reusable DeepSeek cache fake that M6 can drive through TOKENKILLER. The egress seam remains local and easy to replace once Fabric's broader surface exists, and the router now composes with `Session::complete` without another shared-crate extraction step.
+
+### ADR-0017 EP-004 TOKENKILLER M6 corpus and replay gate shape
+Context: EP-004 M6 needs a real replay corpus that proves DeepSeek-style prefix reuse through `Session::complete`, a scriptable ratio gate for `verify.sh`, and per-call forensics when the ratio dips. The new M5 router already provides a cache-aware fake, but cold-start calls and missing `DATABASE_URL` bootstrap would make the bare audit command fail or under-report steady-state behavior.
+Decision: add three JSON fixtures under `tests/fixtures/tk-corpus/` plus `crates/tokenkiller/tests/replay_corpus.rs`, with `llm-router`, `wiremock`, and `serde` as tokenkiller dev-dependencies. Drive one warm-up call per route to seed the fake, then measure the next fourteen append-only transcript turns per route, logging every measured `prefix_sha` plus hit/miss pair and printing a final `tk-corpus ratio: ...` line for `scripts/cache-hit-audit.sh`. Make the script default `DATABASE_URL` to the repo’s documented local Postgres example when the variable is unset so the gate can run under `verify.sh` without extra shell wrapping.
+Alternatives: measure cold starts directly (rejected: the three-route corpus cannot reach the required `>=0.97` ratio if cold misses count), replace the router fake with an in-test stub that bypasses M5’s real provider/accounting path (rejected: weaker evidence), or require the caller to export `DATABASE_URL` manually for the audit script (rejected: too brittle for a command wired into `verify.sh`).
+Consequences: Hydra now has a truthful TK replay gate that exercises the real router/session seam, catches unstable prefix bytes through logged `prefix_sha` transitions, and proves the steady-state cache economics target with a local command. The audit remains local-only and still inherits the broader repo’s separate `cargo deny` license-policy blocker.
 
 ## Rules for adding decisions
 Any new dependency, schema change, ABI change, autonomy-cell default change, or S0–S2 prompt-segment change requires an ADR entry BEFORE merge.

@@ -1,0 +1,44 @@
+{
+  "route": "concierge",
+  "contract": "PlainAnswer",
+  "max_tokens": 96,
+  "output_budget_bytes": 512,
+  "response": "Deal 42 stays in nurture and no write-back is needed.",
+  "segments": [
+    {
+      "stability": "S0",
+      "version": 1,
+      "text": "ROUTE=concierge You are HYDRA concierge. Answer in one short operational sentence. ",
+      "repeat": 48
+    },
+    {
+      "stability": "S1",
+      "version": 2,
+      "text": "Return plain text only, no bullets, no code fences, and no markdown headings. ",
+      "repeat": 48
+    },
+    {
+      "stability": "S2",
+      "version": 3,
+      "text": "Tenant northstar policy keeps CRM triage, approvals, reminders, and audit trails deterministic and append-only. ",
+      "repeat": 40
+    }
+  ],
+  "turns": [
+    "Check the idle deal 42 before the morning digest.",
+    "Recheck deal 42 after the first reminder was scheduled.",
+    "Confirm whether deal 42 still belongs in nurture after a rep note.",
+    "Check if the nurture recommendation changed after another idle day.",
+    "Review the same deal after the owner changed but stage stayed still.",
+    "Confirm the next action after the SLA timer reset.",
+    "Check if deal 42 should stay put after the no reply update.",
+    "Re-evaluate the same triage after the customer opened the email.",
+    "Confirm the cached recommendation after another quiet business day.",
+    "Check deal 42 after the owner asked for one more wait cycle.",
+    "Recheck the same nurture decision after a second reminder send.",
+    "Confirm the one-sentence recommendation after another idle digest.",
+    "Check if deal 42 still avoids write-back after another read-only sync.",
+    "Re-evaluate deal 42 after the final reminder went out.",
+    "Confirm the same operational recommendation for the nightly digest."
+  ]
+}

@@ -3206,8 +3206,10 @@ name = "tokenkiller"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "llm-router",
  "proptest",
  "ryu",
+ "serde",
  "serde_json",
  "sha2",
  "store",
@@ -3216,6 +3218,7 @@ dependencies = [
  "tokio",
  "unicode-normalization",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]
