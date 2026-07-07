@@ -8,8 +8,9 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::header::{HeaderName, HeaderValue};
 use store::AdapterKvRepo;
-use wasmtime::component::{Component, Linker};
+use wasmtime::component::{Component, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Store};
+use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::bindings::{self, hydra::bridge::host as host_if, hydra::bridge::types};
 use crate::grants::Grant;
@@ -20,9 +21,20 @@ pub struct HostState {
     pub secrets: Box<dyn SecretSource>,
     pub egress: Box<dyn EgressClient>,
     pub sql: Option<Box<dyn ReplicaSql>>,
+    pub wasi: WasiCtx,
+    pub table: ResourceTable,
 }
 
 impl types::Host for HostState {}
+
+impl WasiView for HostState {
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.wasi,
+            table: &mut self.table,
+        }
+    }
+}
 
 #[async_trait]
 pub trait KvStore: Send + Sync {
@@ -166,6 +178,7 @@ impl BridgeHost {
 
         let engine = Engine::new(&config)?;
         let mut linker = Linker::new(&engine);
+        wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
         bindings::Bridge::add_to_linker::<HostState, wasmtime::component::HasSelf<HostState>>(
             &mut linker,
             |state: &mut HostState| state,
@@ -480,6 +493,8 @@ mod tests {
             secrets,
             egress,
             sql,
+            wasi: WasiCtxBuilder::new().build(),
+            table: ResourceTable::new(),
         }
     }
 
@@ -627,8 +642,15 @@ mod tests {
             .describe()
             .await
             .expect_err("fuel exhaustion must trap");
-        let message = error.to_string().to_ascii_lowercase();
-        assert!(message.contains("fuel") || message.contains("trap"));
+        let chain = error
+            .chain()
+            .map(|cause| cause.to_string().to_ascii_lowercase())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(
+            chain.contains("fuel") || chain.contains("trap"),
+            "expected fuel/trap error chain, got: {chain}"
+        );
         Ok(())
     }
 

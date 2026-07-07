@@ -13,6 +13,7 @@ store = { path = "../store", version = "0.1.0" }
 tokio.workspace = true
 tracing.workspace = true
 wasmtime.workspace = true
+wasmtime-wasi.workspace = true
 
 [lints.rust]
 unsafe_code = "allow"

@@ -39,6 +39,7 @@ tracing = { version = "0.1.40" }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt"] }
 uuid = { version = "1.10.0", features = ["serde", "v4"] }
 wasmtime = { version = "38.0.4", features = ["async", "component-model"] }
+wasmtime-wasi = { version = "38.0.4" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
