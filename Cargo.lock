@@ -3090,6 +3090,19 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 [[package]]
 name = "tokenkiller"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "proptest",
+ "ryu",
+ "serde_json",
+ "sha2",
+ "store",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "unicode-normalization",
+ "uuid",
+]
 
 [[package]]
 name = "tokio"
