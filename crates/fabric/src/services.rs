@@ -1,7 +1,8 @@
+use std::env;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use axum::http::HeaderMap;
+use axum::http::{header::AUTHORIZATION, HeaderMap};
 use cdm::Entity;
 use governor::{
     ActionEnvelope, BlastRadius, Cell, Clock, Constitution, Decision, EnvelopeState, Governor,
@@ -17,6 +18,7 @@ use crate::error::FabricError;
 #[derive(Clone)]
 pub struct AppState {
     pub entities: Arc<dyn EntityService>,
+    pub autonomy: Arc<dyn AutonomyService>,
     pub envelopes: Arc<dyn EnvelopeService>,
     pub tk_stats: Arc<dyn TkStatsService>,
 }
@@ -24,11 +26,13 @@ pub struct AppState {
 impl AppState {
     pub fn new(
         entities: Arc<dyn EntityService>,
+        autonomy: Arc<dyn AutonomyService>,
         envelopes: Arc<dyn EnvelopeService>,
         tk_stats: Arc<dyn TkStatsService>,
     ) -> Self {
         Self {
             entities,
+            autonomy,
             envelopes,
             tk_stats,
         }
@@ -86,6 +90,15 @@ pub struct EntityDeleteResponse {
     pub deleted: bool,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct AutonomyCellDto {
+    pub domain: String,
+    pub action: String,
+    pub kind: Option<String>,
+    pub level: String,
+    pub cfg: Value,
+}
+
 #[async_trait]
 pub trait EnvelopeService: Send + Sync {
     async fn list(
@@ -137,7 +150,16 @@ pub trait EntityService: Send + Sync {
 }
 
 #[async_trait]
-pub trait AutonomyService: Send + Sync {}
+pub trait AutonomyService: Send + Sync {
+    async fn list(&self, tenant: Uuid) -> Result<Vec<AutonomyCellDto>, FabricError>;
+
+    async fn replace(
+        &self,
+        tenant: Uuid,
+        actor: &str,
+        cells: Vec<AutonomyCellDto>,
+    ) -> Result<Vec<AutonomyCellDto>, FabricError>;
+}
 
 #[async_trait]
 pub trait BridgeService: Send + Sync {}
@@ -341,6 +363,43 @@ impl EntityService for StoreEntityService {
     }
 }
 
+pub struct StoreAutonomyService {
+    store: store::Store,
+}
+
+impl StoreAutonomyService {
+    pub fn new(store: store::Store) -> Self {
+        Self { store }
+    }
+}
+
+#[async_trait]
+impl AutonomyService for StoreAutonomyService {
+    async fn list(&self, tenant: Uuid) -> Result<Vec<AutonomyCellDto>, FabricError> {
+        let cells = self.store.autonomy.list(tenant).await?;
+        cells.into_iter().map(dto_from_stored_cell).collect()
+    }
+
+    async fn replace(
+        &self,
+        tenant: Uuid,
+        actor: &str,
+        cells: Vec<AutonomyCellDto>,
+    ) -> Result<Vec<AutonomyCellDto>, FabricError> {
+        ensure_dev_admin(actor)?;
+        validate_autonomy_cells(&cells)?;
+        let stored = cells
+            .iter()
+            .map(stored_cell_from_dto)
+            .collect::<Result<Vec<_>, _>>()?;
+        self.store
+            .autonomy
+            .replace_cells(tenant, actor, &stored)
+            .await?;
+        self.list(tenant).await
+    }
+}
+
 pub struct StoreTkStatsService {
     ledger: store::LedgerRepo,
     routes: Vec<String>,
@@ -380,6 +439,24 @@ pub fn tenant_from_headers(headers: &HeaderMap) -> Result<Uuid, FabricError> {
         .map_err(|error| FabricError::ValidationFailed(format!("invalid tenant uuid: {error}")))
 }
 
+pub fn dev_admin_actor_from_headers(headers: &HeaderMap) -> Result<&'static str, FabricError> {
+    if !matches!(env::var("HYDRA_ENV").ok().as_deref(), Some("dev")) {
+        return Err(FabricError::AuthzDenied);
+    }
+
+    let raw = headers
+        .get(AUTHORIZATION)
+        .ok_or(FabricError::AuthzDenied)?
+        .to_str()
+        .map_err(|_| FabricError::AuthzDenied)?;
+
+    if raw.trim() == "Bearer hydra-dev-admin" {
+        Ok("dev-admin")
+    } else {
+        Err(FabricError::AuthzDenied)
+    }
+}
+
 fn validate_request(request: &EnvelopeCreateRequest) -> Result<(), FabricError> {
     if request.domain.trim().is_empty() {
         return Err(FabricError::ValidationFailed(
@@ -400,6 +477,22 @@ fn validate_request(request: &EnvelopeCreateRequest) -> Result<(), FabricError> 
         return Err(FabricError::ValidationFailed(
             "rationale must not be empty".into(),
         ));
+    }
+    Ok(())
+}
+
+fn validate_autonomy_cells(cells: &[AutonomyCellDto]) -> Result<(), FabricError> {
+    for cell in cells {
+        if cell.domain.trim().is_empty() {
+            return Err(FabricError::ValidationFailed(
+                "autonomy cell domain must not be empty".into(),
+            ));
+        }
+        if cell.action.trim().is_empty() {
+            return Err(FabricError::ValidationFailed(
+                "autonomy cell action must not be empty".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -436,6 +529,59 @@ fn apply_merge_patch(target: &mut Value, patch: Value) {
             }
         }
         other => *target = other,
+    }
+}
+
+fn ensure_dev_admin(actor: &str) -> Result<(), FabricError> {
+    if actor == "dev-admin" {
+        Ok(())
+    } else {
+        Err(FabricError::AuthzDenied)
+    }
+}
+
+fn dto_from_stored_cell(cell: store::StoredAutonomyCell) -> Result<AutonomyCellDto, FabricError> {
+    Ok(AutonomyCellDto {
+        domain: cell.domain,
+        action: cell.action,
+        kind: cell.kind,
+        level: level_name(cell.level).to_owned(),
+        cfg: cell.cfg,
+    })
+}
+
+fn stored_cell_from_dto(cell: &AutonomyCellDto) -> Result<store::StoredAutonomyCell, FabricError> {
+    Ok(store::StoredAutonomyCell {
+        domain: cell.domain.clone(),
+        action: cell.action.clone(),
+        kind: cell.kind.clone(),
+        level: parse_level_name(&cell.level)?,
+        cfg: cell.cfg.clone(),
+    })
+}
+
+fn level_name(level: governor::Level) -> &'static str {
+    match level {
+        governor::Level::L0 => "L0",
+        governor::Level::L1 => "L1",
+        governor::Level::L2 => "L2",
+        governor::Level::L3 => "L3",
+        governor::Level::L4 => "L4",
+        governor::Level::L5 => "L5",
+    }
+}
+
+fn parse_level_name(level: &str) -> Result<governor::Level, FabricError> {
+    match level {
+        "L0" => Ok(governor::Level::L0),
+        "L1" => Ok(governor::Level::L1),
+        "L2" => Ok(governor::Level::L2),
+        "L3" => Ok(governor::Level::L3),
+        "L4" => Ok(governor::Level::L4),
+        "L5" => Ok(governor::Level::L5),
+        other => Err(FabricError::ValidationFailed(format!(
+            "unknown autonomy level '{other}'"
+        ))),
     }
 }
 

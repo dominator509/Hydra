@@ -13,7 +13,7 @@ use sqlx::PgPool;
 use thiserror::Error;
 
 pub use adapter_kv::AdapterKvRepo;
-pub use autonomy::AutonomyRepo;
+pub use autonomy::{AutonomyRepo, StoredAutonomyCell};
 pub use edges::EdgesRepo;
 pub use entities::EntitiesRepo;
 pub use envelopes::EnvelopesRepo;

@@ -1,3 +1,4 @@
+mod autonomy;
 mod entities;
 mod envelopes;
 mod openapi;
@@ -11,6 +12,10 @@ use crate::services::AppState;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/openapi.json", get(openapi::openapi))
+        .route(
+            "/v1/autonomy/cells",
+            get(autonomy::list_cells).put(autonomy::replace_cells),
+        )
         .route(
             "/v1/entities/:kind",
             get(entities::list_entities).post(entities::create_entity),

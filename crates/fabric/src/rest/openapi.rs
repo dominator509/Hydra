@@ -12,6 +12,10 @@ pub async fn openapi() -> Json<Value> {
             "/v1/openapi.json": {
                 "get": { "summary": "OpenAPI document" }
             },
+            "/v1/autonomy/cells": {
+                "get": { "summary": "List autonomy cells" },
+                "put": { "summary": "Replace autonomy cells" }
+            },
             "/v1/entities/{kind}": {
                 "get": { "summary": "List entities by kind" },
                 "post": { "summary": "Create an entity" }

@@ -4,10 +4,11 @@ use std::sync::Arc;
 use fabric::app;
 use fabric::mcp;
 use fabric::services::{
-    demo_governor, AppState, BlastRadiusDto, EnvelopeCreateRequest, StoreEntityService,
-    StoreEnvelopeService, StoreTkStatsService,
+    demo_governor, AppState, AutonomyCellDto, BlastRadiusDto, EnvelopeCreateRequest,
+    StoreAutonomyService, StoreEntityService, StoreEnvelopeService, StoreTkStatsService,
 };
 use serde_json::json;
+use sqlx::types::Json;
 use store::{Store, TestDb};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -17,6 +18,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
     let db = TestDb::new().await?;
 
     let result = async {
+        std::env::set_var("HYDRA_ENV", "dev");
         let tenant = Uuid::new_v4();
         let store = Store::new(db.pool.clone());
         store
@@ -38,6 +40,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
 
         let state = AppState::new(
             Arc::new(StoreEntityService::new(store.clone())),
+            Arc::new(StoreAutonomyService::new(store.clone())),
             Arc::new(StoreEnvelopeService::new(store.clone(), demo_governor())),
             Arc::new(StoreTkStatsService::new(
                 store.ledger.clone(),
@@ -56,10 +59,120 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
             .json::<serde_json::Value>()
             .await?;
         assert_eq!(openapi["info"]["version"], "1.0.0");
+        assert!(openapi["paths"]["/v1/autonomy/cells"].is_object());
         assert!(openapi["paths"]["/v1/entities/{kind}"].is_object());
         assert!(openapi["paths"]["/v1/entities/{kind}/{id}"].is_object());
         assert!(openapi["paths"]["/v1/envelopes"].is_object());
         assert!(openapi["paths"]["/v1/tk/ledger"].is_object());
+
+        let empty_cells = client
+            .get(format!("http://{addr}/v1/autonomy/cells"))
+            .header("x-hydra-tenant", &tenant_header)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<Vec<AutonomyCellDto>>()
+            .await?;
+        assert!(empty_cells.is_empty());
+
+        let forbidden = client
+            .put(format!("http://{addr}/v1/autonomy/cells"))
+            .header("x-hydra-tenant", &tenant_header)
+            .json(&vec![AutonomyCellDto {
+                domain: "pipeline".into(),
+                action: "move_stage".into(),
+                kind: Some("deal".into()),
+                level: "L4".into(),
+                cfg: json!({ "batch_max": 10 }),
+            }])
+            .send()
+            .await?;
+        assert_eq!(forbidden.status(), reqwest::StatusCode::FORBIDDEN);
+        let forbidden = forbidden.json::<fabric::ProblemJson>().await?;
+        assert_eq!(forbidden.code, "authz_denied");
+
+        let mut autonomy = client
+            .put(format!("http://{addr}/v1/autonomy/cells"))
+            .header("x-hydra-tenant", &tenant_header)
+            .header("Authorization", "Bearer hydra-dev-admin")
+            .json(&vec![
+                AutonomyCellDto {
+                    domain: "pipeline".into(),
+                    action: "move_stage".into(),
+                    kind: Some("deal".into()),
+                    level: "L4".into(),
+                    cfg: json!({ "batch_max": 10 }),
+                },
+                AutonomyCellDto {
+                    domain: "bridges".into(),
+                    action: "deploy_adapter".into(),
+                    kind: None,
+                    level: "L2".into(),
+                    cfg: json!({}),
+                },
+            ])
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<Vec<AutonomyCellDto>>()
+            .await?;
+        let mut expected_autonomy = vec![
+            AutonomyCellDto {
+                domain: "pipeline".into(),
+                action: "move_stage".into(),
+                kind: Some("deal".into()),
+                level: "L4".into(),
+                cfg: json!({ "batch_max": 10 }),
+            },
+            AutonomyCellDto {
+                domain: "bridges".into(),
+                action: "deploy_adapter".into(),
+                kind: None,
+                level: "L2".into(),
+                cfg: json!({}),
+            },
+        ];
+        sort_autonomy_cells(&mut autonomy);
+        sort_autonomy_cells(&mut expected_autonomy);
+        assert_eq!(autonomy, expected_autonomy);
+
+        let mut listed_cells = client
+            .get(format!("http://{addr}/v1/autonomy/cells"))
+            .header("x-hydra-tenant", &tenant_header)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<Vec<AutonomyCellDto>>()
+            .await?;
+        sort_autonomy_cells(&mut listed_cells);
+        assert_eq!(listed_cells, autonomy);
+
+        let autonomy_event = sqlx::query!(
+            r#"
+            SELECT
+                kind,
+                actor,
+                payload as "payload!: Json<serde_json::Value>"
+            FROM event_log
+            WHERE tenant_id = $1
+            ORDER BY seq DESC
+            LIMIT 1
+            "#,
+            tenant
+        )
+        .fetch_one(&db.pool)
+        .await?;
+        assert_eq!(autonomy_event.kind, "autonomy.cells.updated");
+        assert_eq!(autonomy_event.actor, "dev-admin");
+        assert_eq!(
+            autonomy_event
+                .payload
+                .0
+                .get("cells")
+                .and_then(serde_json::Value::as_array)
+                .map(|cells| cells.len()),
+            Some(2)
+        );
 
         let created = client
             .post(format!("http://{addr}/v1/entities/party"))
@@ -235,4 +348,19 @@ async fn spawn_app(router: axum::Router) -> Result<SocketAddr, Box<dyn std::erro
             .expect("fabric integration server should stay alive for the test");
     });
     Ok(addr)
+}
+
+fn sort_autonomy_cells(cells: &mut [AutonomyCellDto]) {
+    cells.sort_by(|left, right| {
+        (
+            left.domain.as_str(),
+            left.action.as_str(),
+            left.kind.as_deref().unwrap_or(""),
+        )
+            .cmp(&(
+                right.domain.as_str(),
+                right.action.as_str(),
+                right.kind.as_deref().unwrap_or(""),
+            ))
+    });
 }
