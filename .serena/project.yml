@@ -65,8 +65,13 @@ ignored_paths:
 - target/**
 - .git/**
 - .obsidian/**
+- .cargo/**
 - .serena/cache/**
+- .serena/logs/**
 - .serena/memories/**
+- **/*.profraw
+- **/*.profdata
+- .tmp/**
 
 # whether the project is in read-only mode
 # If set to true, all editing tools will be disabled and attempts to use them will result in an error
@@ -76,7 +81,7 @@ read_only: false
 # initial prompt for the project. It will always be given to the LLM upon activating the project
 # (contrary to the memories, which are loaded on demand).
 initial_prompt: |
-  Start with README.md, AGENTS.md, COMMANDS.md, PROJECT_BRIEF.md, and the single active ExecPlan under .agent/execplans/.
+  Start with REPO_BRIEF.md, README.md, AGENTS.md, COMMANDS.md, PROJECT_BRIEF.md, and the single active ExecPlan under .agent/execplans/.
 
 # list of mode names that are to be activated by default, overriding the setting in the global configuration.
 # The full set of modes to be activated is base_modes (from global config) + default_modes + added_modes.

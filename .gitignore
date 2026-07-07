@@ -10,7 +10,9 @@
 /.codex/
 /.agents/
 /.obsidian/
+/.cargo/
 /.serena/cache/
+/.serena/logs/
 /.serena/memories/
 /.serena/project.local.yml
 
@@ -24,4 +26,6 @@ Thumbs.db
 
 # Logs and scratch
 *.log
+*.profraw
+*.profdata
 /.tmp/
