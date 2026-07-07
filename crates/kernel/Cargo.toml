@@ -8,12 +8,17 @@ publish.workspace = true
 [dependencies]
 async-nats.workspace = true
 axum.workspace = true
+cdm = { path = "../cdm", version = "0.1.0" }
+governor = { path = "../governor", version = "0.1.0" }
 serde_json.workspace = true
+store = { path = "../store", version = "0.1.0" }
 sqlx.workspace = true
 thiserror.workspace = true
+time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+uuid.workspace = true
 
 [lints]
 workspace = true

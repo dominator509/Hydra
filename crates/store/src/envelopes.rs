@@ -125,6 +125,32 @@ impl EnvelopesRepo {
 
         rows.into_iter().map(row_to_envelope).collect()
     }
+
+    pub async fn get_by_id(
+        &self,
+        envelope_id: Uuid,
+    ) -> Result<governor::ActionEnvelope, StoreError> {
+        let row = sqlx::query_as!(
+            EnvelopeRow,
+            r#"
+            SELECT
+                id,
+                tenant_id,
+                state,
+                doc as "doc!: Json<Value>"
+            FROM envelope
+            WHERE id = $1
+            "#,
+            envelope_id
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match row {
+            Some(row) => row_to_envelope(row),
+            None => Err(StoreError::NotFound),
+        }
+    }
 }
 
 async fn persist_transition(

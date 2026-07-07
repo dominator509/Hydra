@@ -952,6 +952,20 @@ dependencies = [
 [[package]]
 name = "fabric"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "governor",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "store",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "fallible-iterator"
@@ -1371,12 +1385,17 @@ version = "0.1.0"
 dependencies = [
  "async-nats",
  "axum",
+ "cdm",
+ "governor",
  "serde_json",
  "sqlx",
+ "store",
  "thiserror 1.0.69",
+ "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

@@ -1,1 +1,17 @@
-//! layer L4 fabric placeholder for EP-001 foundation work.
+pub mod egress;
+pub mod error;
+pub mod mcp;
+pub mod rest;
+pub mod services;
+
+use axum::Router;
+
+pub use error::{FabricError, ProblemJson};
+pub use services::{
+    AppState, BlastRadiusDto, BridgeService, EntityService, EnvelopeCreateRequest, EnvelopeService,
+    StoreEnvelopeService, StoreTkStatsService, TkRouteStat, TkStatsService, TkWindowStats,
+};
+
+pub fn app(state: AppState) -> Router {
+    rest::router(state)
+}
