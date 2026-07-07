@@ -304,7 +304,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "proptest",
  "reqwest",
+ "serde_json",
  "store",
  "tokio",
  "tracing",

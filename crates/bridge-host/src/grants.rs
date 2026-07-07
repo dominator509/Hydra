@@ -16,7 +16,7 @@ impl Grant {
                 && url[origin.len()..]
                     .chars()
                     .next()
-                    .map_or(true, |ch| ch == '/' || ch == '?')
+                    .is_none_or(|ch| ch == '/' || ch == '?')
         })
     }
 }

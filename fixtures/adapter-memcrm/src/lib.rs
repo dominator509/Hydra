@@ -136,7 +136,10 @@ fn maybe_rate_limit(state: &mut AdapterState) -> Result<(), BridgeError> {
     }
 
     state.calls += 1;
-    if state.calls % u64::from(state.config.rate_limit_every) == 0 {
+    if state
+        .calls
+        .is_multiple_of(u64::from(state.config.rate_limit_every))
+    {
         return Err(BridgeError::RateLimited(RATE_LIMIT_RETRY_AFTER_SECS));
     }
 
@@ -322,7 +325,7 @@ impl adapter::Guest for MemCrm {
 
         let normalized_data = normalize_data(&rec.data)?;
 
-        {
+        let unchanged = {
             let records = state.records.entry(rec.kind.clone()).or_default();
             if let Some(existing) = records.get(&rec.id) {
                 if let Some(ref provided_etag) = rec.etag {
@@ -333,7 +336,19 @@ impl adapter::Guest for MemCrm {
                         )));
                     }
                 }
+
+                if existing.data == normalized_data {
+                    Some(make_raw_record(existing))
+                } else {
+                    None
+                }
+            } else {
+                None
             }
+        };
+
+        if let Some(existing) = unchanged {
+            return Ok(existing);
         }
 
         let etag = Some(next_etag(&mut state));

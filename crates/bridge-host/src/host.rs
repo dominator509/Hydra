@@ -1,8 +1,4 @@
 use std::collections::HashMap;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -10,7 +6,7 @@ use reqwest::header::{HeaderName, HeaderValue};
 use store::AdapterKvRepo;
 use wasmtime::component::{Component, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Store};
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
+use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 use crate::bindings::{self, hydra::bridge::host as host_if, hydra::bridge::types};
 use crate::grants::Grant;
@@ -417,10 +413,14 @@ fn redact_url(url: &str) -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use std::sync::Mutex;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    };
 
     use anyhow::Result;
     use store::TestDb;
+    use wasmtime_wasi::WasiCtxBuilder;
 
     #[derive(Default)]
     struct MemoryKv {
@@ -430,13 +430,18 @@ mod tests {
     #[async_trait]
     impl KvStore for MemoryKv {
         async fn get(&self, key: &str) -> Result<Option<String>> {
-            Ok(self.values.lock().unwrap().get(key).cloned())
+            Ok(self
+                .values
+                .lock()
+                .map_err(|_| anyhow::anyhow!("memory kv poisoned"))?
+                .get(key)
+                .cloned())
         }
 
         async fn set(&self, key: &str, value: &str) -> Result<()> {
             self.values
                 .lock()
-                .unwrap()
+                .map_err(|_| anyhow::anyhow!("memory kv poisoned"))?
                 .insert(key.to_owned(), value.to_owned());
             Ok(())
         }
