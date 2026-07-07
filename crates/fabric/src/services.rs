@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::http::HeaderMap;
+use cdm::Entity;
 use governor::{
     ActionEnvelope, BlastRadius, Cell, Clock, Constitution, Decision, EnvelopeState, Governor,
     Level, PolicyMatrix, Reversal, SpendSnapshot,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -15,13 +16,19 @@ use crate::error::FabricError;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub entities: Arc<dyn EntityService>,
     pub envelopes: Arc<dyn EnvelopeService>,
     pub tk_stats: Arc<dyn TkStatsService>,
 }
 
 impl AppState {
-    pub fn new(envelopes: Arc<dyn EnvelopeService>, tk_stats: Arc<dyn TkStatsService>) -> Self {
+    pub fn new(
+        entities: Arc<dyn EntityService>,
+        envelopes: Arc<dyn EnvelopeService>,
+        tk_stats: Arc<dyn TkStatsService>,
+    ) -> Self {
         Self {
+            entities,
             envelopes,
             tk_stats,
         }
@@ -71,6 +78,14 @@ pub struct TkWindowStats {
     pub routes: Vec<TkRouteStat>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EntityDeleteResponse {
+    pub id: Uuid,
+    pub kind: String,
+    pub version: u64,
+    pub deleted: bool,
+}
+
 #[async_trait]
 pub trait EnvelopeService: Send + Sync {
     async fn list(
@@ -91,7 +106,35 @@ pub trait EnvelopeService: Send + Sync {
 }
 
 #[async_trait]
-pub trait EntityService: Send + Sync {}
+pub trait EntityService: Send + Sync {
+    async fn list(
+        &self,
+        tenant: Uuid,
+        kind: &str,
+        cursor: Option<Uuid>,
+        limit: u16,
+    ) -> Result<Vec<Entity>, FabricError>;
+
+    async fn get(&self, tenant: Uuid, kind: &str, id: Uuid) -> Result<Entity, FabricError>;
+
+    async fn create(&self, tenant: Uuid, kind: &str, body: Value) -> Result<Entity, FabricError>;
+
+    async fn patch(
+        &self,
+        tenant: Uuid,
+        kind: &str,
+        id: Uuid,
+        expected_version: u64,
+        patch: Value,
+    ) -> Result<Entity, FabricError>;
+
+    async fn delete(
+        &self,
+        tenant: Uuid,
+        kind: &str,
+        id: Uuid,
+    ) -> Result<EntityDeleteResponse, FabricError>;
+}
 
 #[async_trait]
 pub trait AutonomyService: Send + Sync {}
@@ -195,6 +238,109 @@ impl EnvelopeService for StoreEnvelopeService {
     }
 }
 
+pub struct StoreEntityService {
+    store: store::Store,
+}
+
+impl StoreEntityService {
+    pub fn new(store: store::Store) -> Self {
+        Self { store }
+    }
+}
+
+#[async_trait]
+impl EntityService for StoreEntityService {
+    async fn list(
+        &self,
+        tenant: Uuid,
+        kind: &str,
+        cursor: Option<Uuid>,
+        limit: u16,
+    ) -> Result<Vec<Entity>, FabricError> {
+        Ok(self
+            .store
+            .entities
+            .list(tenant, kind, cursor, i64::from(limit))
+            .await?)
+    }
+
+    async fn get(&self, tenant: Uuid, kind: &str, id: Uuid) -> Result<Entity, FabricError> {
+        let entity = self.store.entities.get(tenant, id).await?;
+        ensure_kind(&entity, kind)?;
+        Ok(entity)
+    }
+
+    async fn create(&self, tenant: Uuid, kind: &str, body: Value) -> Result<Entity, FabricError> {
+        Ok(self
+            .store
+            .entities
+            .upsert(
+                tenant,
+                Entity {
+                    id: Uuid::new_v4(),
+                    kind: kind.to_owned(),
+                    tenant,
+                    body,
+                    origin: "native".into(),
+                    origin_ref: None,
+                    version: 1,
+                },
+            )
+            .await?)
+    }
+
+    async fn patch(
+        &self,
+        tenant: Uuid,
+        kind: &str,
+        id: Uuid,
+        expected_version: u64,
+        patch: Value,
+    ) -> Result<Entity, FabricError> {
+        let entity = self.store.entities.get(tenant, id).await?;
+        ensure_kind(&entity, kind)?;
+        if entity.version != expected_version {
+            return Err(FabricError::VersionConflict);
+        }
+
+        let mut body = entity.body.clone();
+        apply_merge_patch(&mut body, patch);
+        Ok(self
+            .store
+            .entities
+            .upsert(
+                tenant,
+                Entity {
+                    id: entity.id,
+                    kind: entity.kind,
+                    tenant: entity.tenant,
+                    body,
+                    origin: entity.origin,
+                    origin_ref: entity.origin_ref,
+                    version: entity.version + 1,
+                },
+            )
+            .await?)
+    }
+
+    async fn delete(
+        &self,
+        tenant: Uuid,
+        kind: &str,
+        id: Uuid,
+    ) -> Result<EntityDeleteResponse, FabricError> {
+        let entity = self.store.entities.get(tenant, id).await?;
+        ensure_kind(&entity, kind)?;
+        self.store.entities.soft_delete(tenant, id).await?;
+        Ok(EntityDeleteResponse {
+            id,
+            kind: entity.kind,
+            version: entity.version + 1,
+            deleted: true,
+        })
+    }
+}
+
 pub struct StoreTkStatsService {
     ledger: store::LedgerRepo,
     routes: Vec<String>,
@@ -256,6 +402,41 @@ fn validate_request(request: &EnvelopeCreateRequest) -> Result<(), FabricError> 
         ));
     }
     Ok(())
+}
+
+fn ensure_kind(entity: &Entity, kind: &str) -> Result<(), FabricError> {
+    if entity.kind == kind {
+        Ok(())
+    } else {
+        Err(FabricError::NotFound)
+    }
+}
+
+fn apply_merge_patch(target: &mut Value, patch: Value) {
+    match patch {
+        Value::Object(patch_map) => {
+            if !target.is_object() {
+                *target = Value::Object(Map::new());
+            }
+            let Some(target_map) = target.as_object_mut() else {
+                panic!("target should be an object after normalization");
+            };
+            for (key, value) in patch_map {
+                if value.is_null() {
+                    target_map.remove(&key);
+                    continue;
+                }
+
+                match target_map.get_mut(&key) {
+                    Some(existing) => apply_merge_patch(existing, value),
+                    None => {
+                        target_map.insert(key, value);
+                    }
+                }
+            }
+        }
+        other => *target = other,
+    }
 }
 
 fn month_start() -> OffsetDateTime {

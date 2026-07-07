@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 async-trait.workspace = true
 axum.workspace = true
+cdm = { path = "../cdm", version = "0.1.0" }
 governor = { path = "../governor", version = "0.1.0" }
 reqwest.workspace = true
 serde.workspace = true

@@ -12,6 +12,15 @@ pub async fn openapi() -> Json<Value> {
             "/v1/openapi.json": {
                 "get": { "summary": "OpenAPI document" }
             },
+            "/v1/entities/{kind}": {
+                "get": { "summary": "List entities by kind" },
+                "post": { "summary": "Create an entity" }
+            },
+            "/v1/entities/{kind}/{id}": {
+                "get": { "summary": "Get an entity" },
+                "patch": { "summary": "Patch an entity via JSON Merge Patch" },
+                "delete": { "summary": "Soft delete an entity" }
+            },
             "/v1/envelopes": {
                 "get": { "summary": "List envelopes by state" },
                 "post": { "summary": "Propose an envelope" }

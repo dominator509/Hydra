@@ -4,8 +4,8 @@ use std::sync::Arc;
 use fabric::app;
 use fabric::mcp;
 use fabric::services::{
-    demo_governor, AppState, BlastRadiusDto, EnvelopeCreateRequest, StoreEnvelopeService,
-    StoreTkStatsService,
+    demo_governor, AppState, BlastRadiusDto, EnvelopeCreateRequest, StoreEntityService,
+    StoreEnvelopeService, StoreTkStatsService,
 };
 use serde_json::json;
 use store::{Store, TestDb};
@@ -37,6 +37,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
             .await?;
 
         let state = AppState::new(
+            Arc::new(StoreEntityService::new(store.clone())),
             Arc::new(StoreEnvelopeService::new(store.clone(), demo_governor())),
             Arc::new(StoreTkStatsService::new(
                 store.ledger.clone(),
@@ -55,8 +56,93 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
             .json::<serde_json::Value>()
             .await?;
         assert_eq!(openapi["info"]["version"], "1.0.0");
+        assert!(openapi["paths"]["/v1/entities/{kind}"].is_object());
+        assert!(openapi["paths"]["/v1/entities/{kind}/{id}"].is_object());
         assert!(openapi["paths"]["/v1/envelopes"].is_object());
         assert!(openapi["paths"]["/v1/tk/ledger"].is_object());
+
+        let created = client
+            .post(format!("http://{addr}/v1/entities/party"))
+            .header("x-hydra-tenant", &tenant_header)
+            .json(&json!({ "display_name": "Ada Lovelace" }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<cdm::Entity>()
+            .await?;
+        assert_eq!(created.kind, "party");
+        assert_eq!(created.version, 1);
+        assert_eq!(created.body["display_name"], "Ada Lovelace");
+
+        let listed = client
+            .get(format!("http://{addr}/v1/entities/party?limit=5"))
+            .header("x-hydra-tenant", &tenant_header)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<Vec<cdm::Entity>>()
+            .await?;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, created.id);
+
+        let fetched = client
+            .get(format!("http://{addr}/v1/entities/party/{}", created.id))
+            .header("x-hydra-tenant", &tenant_header)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<cdm::Entity>()
+            .await?;
+        assert_eq!(fetched.id, created.id);
+
+        let conflict = client
+            .patch(format!("http://{addr}/v1/entities/party/{}", created.id))
+            .header("x-hydra-tenant", &tenant_header)
+            .header("If-Match", "0")
+            .json(&json!({ "email": "wrong@example.com" }))
+            .send()
+            .await?;
+        assert_eq!(conflict.status(), reqwest::StatusCode::CONFLICT);
+        let conflict = conflict.json::<fabric::ProblemJson>().await?;
+        assert_eq!(conflict.code, "version_conflict");
+
+        let patched = client
+            .patch(format!("http://{addr}/v1/entities/party/{}", created.id))
+            .header("x-hydra-tenant", &tenant_header)
+            .header("If-Match", "1")
+            .json(&json!({
+                "email": "ada@example.com",
+                "profile": { "timezone": "UTC" }
+            }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<cdm::Entity>()
+            .await?;
+        assert_eq!(patched.version, 2);
+        assert_eq!(patched.body["display_name"], "Ada Lovelace");
+        assert_eq!(patched.body["email"], "ada@example.com");
+        assert_eq!(patched.body["profile"]["timezone"], "UTC");
+
+        let deleted = client
+            .delete(format!("http://{addr}/v1/entities/party/{}", created.id))
+            .header("x-hydra-tenant", &tenant_header)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<fabric::EntityDeleteResponse>()
+            .await?;
+        assert!(deleted.deleted);
+        assert_eq!(deleted.version, 3);
+
+        let missing = client
+            .get(format!("http://{addr}/v1/entities/party/{}", created.id))
+            .header("x-hydra-tenant", &tenant_header)
+            .send()
+            .await?;
+        assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
+        let missing = missing.json::<fabric::ProblemJson>().await?;
+        assert_eq!(missing.code, "not_found");
 
         let proposed = client
             .post(format!("http://{addr}/v1/envelopes"))
