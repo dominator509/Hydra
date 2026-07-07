@@ -1,0 +1,13 @@
+# Checklist: Validation (full pass = scripts/verify.sh, or piecewise)
+- [ ] `bash scripts/lint.sh` → lint: ok
+- [ ] `bash scripts/format-check.sh` → format check: ok
+- [ ] `bash scripts/typecheck.sh` → typecheck: ok
+- [ ] `bash scripts/test-unit.sh` → unit tests: ok
+- [ ] `bash scripts/test-integration.sh` → integration tests: ok
+- [ ] `bash scripts/test-e2e.sh` → e2e tests: ok
+- [ ] `bash scripts/build.sh` → build: ok
+- [ ] `bash scripts/security-check.sh` → security check: ok
+- [ ] `bash scripts/dependency-audit.sh` → dependency audit: ok
+- [ ] `bash scripts/smoke-test.sh` → smoke test: ok
+- [ ] `bash scripts/cache-hit-audit.sh` → cache-hit audit: ok (ratio ≥ 0.97)  [post-EP-004]
+- [ ] `bash scripts/verify.sh` → verify: ok

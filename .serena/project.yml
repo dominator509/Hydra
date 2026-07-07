@@ -1,0 +1,21 @@
+project_name: "Hydra"
+languages:
+  - rust
+  - markdown
+  - yaml
+  - toml
+  - json
+  - bash
+encoding: "utf-8"
+line_ending: "lf"
+language_backend: LSP
+ignore_all_files_in_gitignore: true
+ignored_paths:
+  - target/**
+  - .git/**
+  - .obsidian/**
+  - .serena/cache/**
+  - .serena/memories/**
+read_only: false
+initial_prompt: |
+  Start with README.md, AGENTS.md, COMMANDS.md, PROJECT_BRIEF.md, and the single active ExecPlan under .agent/execplans/.

@@ -1,0 +1,13 @@
+# Checklist: Agent Readiness (before starting any ExecPlan)
+- [ ] Exactly ONE active ExecPlan identified; its path stated in your first log line.
+- [ ] Plan is self-contained: a stranger could execute it (no references to "the earlier chat").
+- [ ] Files to Read First — all exist (`ls` each) or plan says they will be created.
+- [ ] Files to Change list present and specific (paths, not "various files").
+- [ ] Every milestone has an exact validation command AND expected output string.
+- [ ] Acceptance criteria observable (command output / HTTP code), zero vibes.
+- [ ] Non-goals section present; you can restate them from memory before editing.
+- [ ] STOP conditions read (AGENTS.md §4) and none currently apply.
+- [ ] Recovery instructions exist per milestone; bounded-retry rule (§7) understood.
+- [ ] Diff-review rule understood: `git diff --name-only` ⊆ Files to Change.
+- [ ] No hidden context needed: COMMANDS.md covers every command you plan to run.
+- [ ] No vague requirements remain; any found → fix the plan first + Decision Log.

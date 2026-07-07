@@ -1,0 +1,27 @@
+# Rust build outputs
+/target/
+
+# Environment and secrets
+/.env
+/.env.*
+!/.env.example
+
+# Local tool state
+/.codex/
+/.agents/
+/.obsidian/
+/.serena/cache/
+/.serena/memories/
+/.serena/project.local.yml
+
+# Editor files
+/.idea/
+/.vscode/
+
+# OS noise
+Thumbs.db
+.DS_Store
+
+# Logs and scratch
+*.log
+/.tmp/

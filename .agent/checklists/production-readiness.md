@@ -1,0 +1,13 @@
+# Checklist: Production Readiness (mirror of PRODUCTION_READINESS.md, quick form)
+- [ ] Functionality: SPEC-000 outcomes demoed on staging.
+- [ ] Tests: verify ×3 green; nightly soak green; regression net present.
+- [ ] Security: security-check ok; authz matrix ok; grants reviewed; vault backed up.
+- [ ] Privacy: export + purge demoed; retention jobs scheduled.
+- [ ] Performance: p95 <150ms; governor <5ms p99; 10k import <10min; ratio ≥0.97 24h.
+- [ ] Accessibility: keyboard pass; JS-off pass; labels/landmarks audit.
+- [ ] Observability: dashboards live; alerts tested; redaction verified.
+- [ ] Deployment: staging deploy reproducible from tag.
+- [ ] Rollback: drill ≤10min PASS. Backups: restore drill PASS (RTO ≤30min).
+- [ ] Docs: OPERATIONS/RELEASE/ROLLBACK current; escalation named.
+- [ ] Support: incident checklist accessible; known risks in DECISIONS.md.
+- [ ] `bash scripts/production-readiness-check.sh` → production readiness: ok.
