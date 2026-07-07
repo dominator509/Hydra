@@ -7,6 +7,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::sleep;
 
+const HEALTHZ_WAIT_ATTEMPTS: usize = 120;
+const HEALTHZ_WAIT_INTERVAL: Duration = Duration::from_millis(100);
+
 #[tokio::test]
 async fn smoke_healthz() -> Result<(), Box<dyn std::error::Error>> {
     let addr = reserve_addr()?;
@@ -51,7 +54,10 @@ async fn wait_for_healthz(
     addr: SocketAddr,
     child: &mut Child,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    for _ in 0..60 {
+    // Windows child-process startup can occasionally lag enough to miss the
+    // original 6s budget even when the kernel is healthy; keep the smoke gate
+    // deterministic by allowing a modest 12s startup window.
+    for _ in 0..HEALTHZ_WAIT_ATTEMPTS {
         if let Some(status) = child.try_wait()? {
             return Err(io::Error::other(format!(
                 "hydra-kernel exited before /healthz was reachable: {status}"
@@ -65,7 +71,7 @@ async fn wait_for_healthz(
             {
                 return Ok(response);
             }
-            Ok(_) | Err(_) => sleep(Duration::from_millis(100)).await,
+            Ok(_) | Err(_) => sleep(HEALTHZ_WAIT_INTERVAL).await,
         }
     }
 

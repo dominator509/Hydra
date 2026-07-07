@@ -12,6 +12,7 @@
 | 0007 | Fixed transform library in sync path; no agent-authored code executes there | Accepted | 2026-07-06 | djw |
 | 0008 | Soft-delete only; append-only audit | Accepted | 2026-07-06 | djw |
 | 0009 | Foundation workspace kernel uses Axum/Tokio/Tracing/Thiserror on Rust 1.96.1 | Accepted | 2026-07-07 | Codex |
+| 0010 | EP-002 core-domain crates use jsonschema, time, and proptest | Accepted | 2026-07-07 | Codex |
 
 ## ADR index
 ADRs live inline below; new ADRs append using `.agent/templates/adr-template.md`.
@@ -27,6 +28,12 @@ Context: EP-001 needs a real Rust workspace, a binary kernel that can serve `/he
 Decision: use Rust 1.96.1 (already installed on this host) as the pinned workspace toolchain and keep the initial runtime surface minimal: `axum` for the health endpoint/router, `tokio` for async runtime + socket binding, `tracing` + `tracing-subscriber` for structured logs, and `thiserror` for kernel-local errors. Keep the remaining crates dependency-free placeholders until later ExecPlans justify more imports.
 Alternatives: raw `hyper`/manual HTTP server (rejected: less aligned with the accepted Axum shell direction), adding broader deps up front such as `askama`, `sqlx`, or `reqwest` in M1 (rejected: unnecessary before later plans define the behavior), pinning an older toolchain than the installed one (rejected: would likely trigger an avoidable network toolchain install here).
 Consequences: M1 compiles the workspace with a minimal binary and empty layer placeholders, future plans can add crate-specific deps incrementally with their own ADR coverage, and the workspace stays close to the accepted architecture without over-materializing later-plan behavior.
+
+### ADR-0010 EP-002 core-domain dependency set
+Context: EP-002 needs schema-bound entity validation, RFC3339 transition timestamps, and property-based safety tests in the pure L1 crates while still obeying the repo's layer law and AGENTS.md's requirement that new dependencies get a durable ADR entry before merge.
+Decision: add `jsonschema` to `crates/cdm` for the builtin kind registry, `time` to `crates/governor` for RFC3339 timestamp formatting in transition history, and `proptest` as a shared dev-dependency for `cdm` and `governor` property/regression coverage. Keep the rest of the implementation on the already accepted `serde`, `serde_json`, `uuid`, and `thiserror` stack.
+Alternatives: hand-roll JSON Schema checks (rejected: slower, less correct, and would duplicate a mature validator), use `chrono` for timestamps (rejected: unnecessary when `time` cleanly covers the RFC3339 formatting need), and rely only on example-based tests (rejected: weaker coverage for the matrix-resolution and state-machine invariants that SPEC-001 explicitly calls out for property tests).
+Consequences: EP-002 can enforce kind schemas and pure-governor invariants locally with green `cargo test` / `verify.sh` gates, later plans inherit a stable L1 API surface, and the workspace lockfile expands accordingly under the repo's normal audit flow.
 
 ## Rules for adding decisions
 Any new dependency, schema change, ABI change, autonomy-cell default change, or S0–S2 prompt-segment change requires an ADR entry BEFORE merge.

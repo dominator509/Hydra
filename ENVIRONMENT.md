@@ -8,7 +8,7 @@ rustup (Rust 1.79+ pinned in rust-toolchain.toml), cargo components: rustfmt, cl
 |---|---|---|---|---|---|---|
 | DATABASE_URL | yes | all | postgres://hydra:hydra@localhost:5432/hydra | yes(cred) | sqlx conn | preflight: `pg_isready` equivalent via sqlx ping |
 | NATS_URL | yes | all | nats://localhost:4222 | no | event spine | kernel boot ping |
-| HYDRA_VAULT_KEY | yes | all | AGE-SECRET-KEY-1... | YES | decrypts vault/secrets.age | kernel refuses boot w/o |
+| HYDRA_VAULT_KEY | yes | all | SET_LOCAL_DEV_VAULT_KEY | YES | decrypts vault/secrets.age | kernel refuses boot w/o |
 | HYDRA_BIND | no | all | 0.0.0.0:8080 | no | listen addr | parseable SocketAddr |
 | HYDRA_BASE_URL | yes | stage/prod | https://crm.example.com | no | OAuth redirects, links | must be https in prod |
 | DEEPSEEK_API_KEY | opt* | all | sk-... | YES | deepseek provider | *required if routes use deepseek; else STOP per AGENTS §4 |

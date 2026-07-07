@@ -22,9 +22,12 @@ version = "0.1.0"
 
 [workspace.dependencies]
 axum = { version = "0.7.5" }
+jsonschema = { version = "0.18.3" }
+proptest = { version = "1.6.0" }
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = { version = "1.0.128" }
 thiserror = { version = "1.0.64" }
+time = { version = "0.3.36", features = ["formatting"] }
 tokio = { version = "1.40.0", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 tracing = { version = "0.1.40" }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt"] }
