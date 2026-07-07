@@ -1,4 +1,5 @@
 mod autonomy;
+mod bridges;
 mod entities;
 mod envelopes;
 mod openapi;
@@ -16,6 +17,10 @@ pub fn router(state: AppState) -> Router {
             "/v1/autonomy/cells",
             get(autonomy::list_cells).put(autonomy::replace_cells),
         )
+        .route("/v1/bridges", post(bridges::register_bridge))
+        .route("/v1/bridges/:id/status", get(bridges::bridge_status))
+        .route("/v1/bridges/:id/pause", post(bridges::pause_bridge))
+        .route("/v1/bridges/:id/resume", post(bridges::resume_bridge))
         .route(
             "/v1/entities/:kind",
             get(entities::list_entities).post(entities::create_entity),

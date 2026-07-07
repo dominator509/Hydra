@@ -9,7 +9,7 @@ use governor::{
     Level, PolicyMatrix, Reversal, SpendSnapshot,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -19,6 +19,7 @@ use crate::error::FabricError;
 pub struct AppState {
     pub entities: Arc<dyn EntityService>,
     pub autonomy: Arc<dyn AutonomyService>,
+    pub bridges: Arc<dyn BridgeService>,
     pub envelopes: Arc<dyn EnvelopeService>,
     pub tk_stats: Arc<dyn TkStatsService>,
 }
@@ -27,12 +28,14 @@ impl AppState {
     pub fn new(
         entities: Arc<dyn EntityService>,
         autonomy: Arc<dyn AutonomyService>,
+        bridges: Arc<dyn BridgeService>,
         envelopes: Arc<dyn EnvelopeService>,
         tk_stats: Arc<dyn TkStatsService>,
     ) -> Self {
         Self {
             entities,
             autonomy,
+            bridges,
             envelopes,
             tk_stats,
         }
@@ -99,6 +102,31 @@ pub struct AutonomyCellDto {
     pub cfg: Value,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct BridgeGrantDto {
+    pub origins: Vec<String>,
+    pub secret_names: Vec<String>,
+    pub dsn_name: Option<String>,
+    pub fuel: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct BridgeRegisterRequest {
+    pub adapter_id: String,
+    pub wiring_ref: String,
+    pub rationale: String,
+    pub grant: BridgeGrantDto,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct BridgeStatusDto {
+    pub adapter_id: String,
+    pub state: String,
+    pub envelope_id: Option<Uuid>,
+    pub envelope_state: Option<String>,
+    pub wiring_ref: Option<String>,
+}
+
 #[async_trait]
 pub trait EnvelopeService: Send + Sync {
     async fn list(
@@ -162,7 +190,30 @@ pub trait AutonomyService: Send + Sync {
 }
 
 #[async_trait]
-pub trait BridgeService: Send + Sync {}
+pub trait BridgeService: Send + Sync {
+    async fn register(
+        &self,
+        tenant: Uuid,
+        actor: &str,
+        request: BridgeRegisterRequest,
+    ) -> Result<ActionEnvelope, FabricError>;
+
+    async fn status(&self, tenant: Uuid, adapter_id: &str) -> Result<BridgeStatusDto, FabricError>;
+
+    async fn pause(
+        &self,
+        tenant: Uuid,
+        actor: &str,
+        adapter_id: &str,
+    ) -> Result<BridgeStatusDto, FabricError>;
+
+    async fn resume(
+        &self,
+        tenant: Uuid,
+        actor: &str,
+        adapter_id: &str,
+    ) -> Result<BridgeStatusDto, FabricError>;
+}
 
 #[async_trait]
 pub trait TkStatsService: Send + Sync {
@@ -400,6 +451,178 @@ impl AutonomyService for StoreAutonomyService {
     }
 }
 
+pub struct StoreBridgeService {
+    store: store::Store,
+    envelopes: StoreEnvelopeService,
+}
+
+impl StoreBridgeService {
+    pub fn new(store: store::Store, governor: Governor) -> Self {
+        Self {
+            envelopes: StoreEnvelopeService::new(store.clone(), governor),
+            store,
+        }
+    }
+
+    async fn is_paused(&self, tenant: Uuid, adapter_id: &str) -> Result<bool, FabricError> {
+        let scoped = scoped_bridge_key(tenant, adapter_id);
+        Ok(matches!(
+            self.store
+                .adapter_kv
+                .get(&scoped, "paused")
+                .await?
+                .as_deref(),
+            Some("true")
+        ))
+    }
+
+    async fn find_bridge_envelope(
+        &self,
+        tenant: Uuid,
+        adapter_id: &str,
+        states: &[EnvelopeState],
+    ) -> Result<Option<ActionEnvelope>, FabricError> {
+        for state in states {
+            let envelopes = self.store.envelopes.list(tenant, *state).await?;
+            if let Some(envelope) = envelopes
+                .into_iter()
+                .find(|envelope| is_bridge_envelope(envelope, adapter_id))
+            {
+                return Ok(Some(envelope));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn current_status(
+        &self,
+        tenant: Uuid,
+        adapter_id: &str,
+    ) -> Result<BridgeStatusDto, FabricError> {
+        let paused = self.is_paused(tenant, adapter_id).await?;
+
+        if let Some(envelope) = self
+            .find_bridge_envelope(
+                tenant,
+                adapter_id,
+                &[
+                    EnvelopeState::PendingApproval,
+                    EnvelopeState::Approved,
+                    EnvelopeState::Executing,
+                    EnvelopeState::Proposed,
+                ],
+            )
+            .await?
+        {
+            return Ok(bridge_status_dto(
+                adapter_id,
+                if paused { "paused" } else { "queued" },
+                &envelope,
+            ));
+        }
+
+        if let Some(envelope) = self
+            .find_bridge_envelope(tenant, adapter_id, &[EnvelopeState::Executed])
+            .await?
+        {
+            return Ok(bridge_status_dto(
+                adapter_id,
+                if paused { "paused" } else { "active" },
+                &envelope,
+            ));
+        }
+
+        if let Some(envelope) = self
+            .find_bridge_envelope(
+                tenant,
+                adapter_id,
+                &[
+                    EnvelopeState::Failed,
+                    EnvelopeState::RolledBack,
+                    EnvelopeState::Rejected,
+                ],
+            )
+            .await?
+        {
+            return Ok(bridge_status_dto(
+                adapter_id,
+                if paused { "paused" } else { "inactive" },
+                &envelope,
+            ));
+        }
+
+        Err(FabricError::NotFound)
+    }
+}
+
+#[async_trait]
+impl BridgeService for StoreBridgeService {
+    async fn register(
+        &self,
+        tenant: Uuid,
+        actor: &str,
+        request: BridgeRegisterRequest,
+    ) -> Result<ActionEnvelope, FabricError> {
+        ensure_dev_admin(actor)?;
+        validate_bridge_request(&request)?;
+
+        self.envelopes
+            .propose(
+                tenant,
+                EnvelopeCreateRequest {
+                    domain: "bridges".into(),
+                    action: "deploy_adapter".into(),
+                    kind: None,
+                    targets: vec![bridge_target(tenant, &request.adapter_id)],
+                    payload: bridge_payload(&request),
+                    rationale: request.rationale.clone(),
+                    reversal: Reversal::Compensating,
+                    blast: BlastRadiusDto {
+                        entities: 1,
+                        external_sends: 0,
+                        money_cents: 0,
+                        pii_egress: false,
+                    },
+                },
+            )
+            .await
+    }
+
+    async fn status(&self, tenant: Uuid, adapter_id: &str) -> Result<BridgeStatusDto, FabricError> {
+        self.current_status(tenant, adapter_id).await
+    }
+
+    async fn pause(
+        &self,
+        tenant: Uuid,
+        actor: &str,
+        adapter_id: &str,
+    ) -> Result<BridgeStatusDto, FabricError> {
+        ensure_dev_admin(actor)?;
+        let _ = self.current_status(tenant, adapter_id).await?;
+        let scoped = scoped_bridge_key(tenant, adapter_id);
+        self.store.adapter_kv.set(&scoped, "paused", "true").await?;
+        self.current_status(tenant, adapter_id).await
+    }
+
+    async fn resume(
+        &self,
+        tenant: Uuid,
+        actor: &str,
+        adapter_id: &str,
+    ) -> Result<BridgeStatusDto, FabricError> {
+        ensure_dev_admin(actor)?;
+        let _ = self.current_status(tenant, adapter_id).await?;
+        let scoped = scoped_bridge_key(tenant, adapter_id);
+        self.store
+            .adapter_kv
+            .set(&scoped, "paused", "false")
+            .await?;
+        self.current_status(tenant, adapter_id).await
+    }
+}
+
 pub struct StoreTkStatsService {
     ledger: store::LedgerRepo,
     routes: Vec<String>,
@@ -497,6 +720,25 @@ fn validate_autonomy_cells(cells: &[AutonomyCellDto]) -> Result<(), FabricError>
     Ok(())
 }
 
+fn validate_bridge_request(request: &BridgeRegisterRequest) -> Result<(), FabricError> {
+    if request.adapter_id.trim().is_empty() {
+        return Err(FabricError::ValidationFailed(
+            "bridge adapter_id must not be empty".into(),
+        ));
+    }
+    if request.wiring_ref.trim().is_empty() {
+        return Err(FabricError::ValidationFailed(
+            "bridge wiring_ref must not be empty".into(),
+        ));
+    }
+    if request.grant.fuel == 0 {
+        return Err(FabricError::ValidationFailed(
+            "bridge grant fuel must be greater than zero".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn ensure_kind(entity: &Entity, kind: &str) -> Result<(), FabricError> {
     if entity.kind == kind {
         Ok(())
@@ -537,6 +779,55 @@ fn ensure_dev_admin(actor: &str) -> Result<(), FabricError> {
         Ok(())
     } else {
         Err(FabricError::AuthzDenied)
+    }
+}
+
+fn bridge_payload(request: &BridgeRegisterRequest) -> Value {
+    json!({
+        "adapter_id": request.adapter_id,
+        "wiring_ref": request.wiring_ref,
+        "grant": request.grant,
+    })
+}
+
+fn bridge_target(_tenant: Uuid, _adapter_id: &str) -> Uuid {
+    Uuid::new_v4()
+}
+
+fn scoped_bridge_key(tenant: Uuid, adapter_id: &str) -> String {
+    format!("{tenant}:{adapter_id}")
+}
+
+fn is_bridge_envelope(envelope: &ActionEnvelope, adapter_id: &str) -> bool {
+    envelope.domain == "bridges"
+        && envelope.action == "deploy_adapter"
+        && envelope.payload.get("adapter_id").and_then(Value::as_str) == Some(adapter_id)
+}
+
+fn bridge_status_dto(adapter_id: &str, state: &str, envelope: &ActionEnvelope) -> BridgeStatusDto {
+    BridgeStatusDto {
+        adapter_id: adapter_id.to_owned(),
+        state: state.to_owned(),
+        envelope_id: Some(envelope.id),
+        envelope_state: Some(envelope_state_name(envelope.state).to_owned()),
+        wiring_ref: envelope
+            .payload
+            .get("wiring_ref")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+    }
+}
+
+fn envelope_state_name(state: EnvelopeState) -> &'static str {
+    match state {
+        EnvelopeState::Proposed => "Proposed",
+        EnvelopeState::PendingApproval => "PendingApproval",
+        EnvelopeState::Approved => "Approved",
+        EnvelopeState::Executing => "Executing",
+        EnvelopeState::Executed => "Executed",
+        EnvelopeState::Failed => "Failed",
+        EnvelopeState::RolledBack => "RolledBack",
+        EnvelopeState::Rejected => "Rejected",
     }
 }
 

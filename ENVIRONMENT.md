@@ -25,7 +25,7 @@ Secrets INSIDE the vault (referenced by name, not env): suitecrm_client_id, suit
 1. `bash scripts/install.sh` 2. `cp .env.example .env` and fill non-secret vars; generate vault: `age-keygen` → set HYDRA_VAULT_KEY; `hydra vault set <name>` (EP-006 CLI). 3. `docker compose -f docker/compose.yaml up -d postgres nats` 4. `bash scripts/db-setup.sh` 5. `cargo run -p hydra-kernel`.
 
 ## Test env
-Integration tests self-manage schemas on DATABASE_URL; DeepSeek/Anthropic are wiremock fakes — no keys needed for `verify.sh`. During EP-004, admin-only autonomy edits use a documented dev stub: when `HYDRA_ENV=dev`, `PUT /v1/autonomy/cells` accepts `Authorization: Bearer hydra-dev-admin`; staging/prod still wait for the real EP-006 auth surface. `scripts/cache-hit-audit.sh` falls back to the documented local Postgres example when DATABASE_URL is unset so the replay gate can run under local `verify.sh` without extra shell wrapping.
+Integration tests self-manage schemas on DATABASE_URL; DeepSeek/Anthropic are wiremock fakes — no keys needed for `verify.sh`. During EP-004, admin-only bridge/autonomy edits use a documented dev stub: when `HYDRA_ENV=dev`, `PUT /v1/autonomy/cells`, `POST /v1/bridges`, and `POST /v1/bridges/{id}/pause|resume` accept `Authorization: Bearer hydra-dev-admin`; staging/prod still wait for the real EP-006 auth surface. `scripts/cache-hit-audit.sh` falls back to the documented local Postgres example when DATABASE_URL is unset so the replay gate can run under local `verify.sh` without extra shell wrapping.
 
 ## Staging / Production
 Same compose file + Caddyfile; HYDRA_ENV=staging|prod; real DNS + TLS via Caddy; secrets provisioned by operator into vault before first boot. Parity rule: only env vars in the table may differ across envs.

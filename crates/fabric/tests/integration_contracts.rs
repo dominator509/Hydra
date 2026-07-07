@@ -4,8 +4,9 @@ use std::sync::Arc;
 use fabric::app;
 use fabric::mcp;
 use fabric::services::{
-    demo_governor, AppState, AutonomyCellDto, BlastRadiusDto, EnvelopeCreateRequest,
-    StoreAutonomyService, StoreEntityService, StoreEnvelopeService, StoreTkStatsService,
+    demo_governor, AppState, AutonomyCellDto, BlastRadiusDto, BridgeGrantDto,
+    BridgeRegisterRequest, BridgeStatusDto, EnvelopeCreateRequest, StoreAutonomyService,
+    StoreBridgeService, StoreEntityService, StoreEnvelopeService, StoreTkStatsService,
 };
 use serde_json::json;
 use sqlx::types::Json;
@@ -41,6 +42,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
         let state = AppState::new(
             Arc::new(StoreEntityService::new(store.clone())),
             Arc::new(StoreAutonomyService::new(store.clone())),
+            Arc::new(StoreBridgeService::new(store.clone(), demo_governor())),
             Arc::new(StoreEnvelopeService::new(store.clone(), demo_governor())),
             Arc::new(StoreTkStatsService::new(
                 store.ledger.clone(),
@@ -60,6 +62,10 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
             .await?;
         assert_eq!(openapi["info"]["version"], "1.0.0");
         assert!(openapi["paths"]["/v1/autonomy/cells"].is_object());
+        assert!(openapi["paths"]["/v1/bridges"].is_object());
+        assert!(openapi["paths"]["/v1/bridges/{id}/status"].is_object());
+        assert!(openapi["paths"]["/v1/bridges/{id}/pause"].is_object());
+        assert!(openapi["paths"]["/v1/bridges/{id}/resume"].is_object());
         assert!(openapi["paths"]["/v1/entities/{kind}"].is_object());
         assert!(openapi["paths"]["/v1/entities/{kind}/{id}"].is_object());
         assert!(openapi["paths"]["/v1/envelopes"].is_object());
@@ -173,6 +179,101 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
                 .map(|cells| cells.len()),
             Some(2)
         );
+
+        let forbidden_bridge = client
+            .post(format!("http://{addr}/v1/bridges"))
+            .header("x-hydra-tenant", &tenant_header)
+            .json(&BridgeRegisterRequest {
+                adapter_id: "memcrm".into(),
+                wiring_ref: "wiring/memcrm.map.yaml".into(),
+                rationale: "register bridge".into(),
+                grant: BridgeGrantDto {
+                    origins: vec!["https://crm.example.com".into()],
+                    secret_names: vec!["suitecrm_client_id".into()],
+                    dsn_name: None,
+                    fuel: 50_000,
+                },
+            })
+            .send()
+            .await?;
+        assert_eq!(forbidden_bridge.status(), reqwest::StatusCode::FORBIDDEN);
+        let forbidden_bridge = forbidden_bridge.json::<fabric::ProblemJson>().await?;
+        assert_eq!(forbidden_bridge.code, "authz_denied");
+
+        let bridge_register = client
+            .post(format!("http://{addr}/v1/bridges"))
+            .header("x-hydra-tenant", &tenant_header)
+            .header("Authorization", "Bearer hydra-dev-admin")
+            .json(&BridgeRegisterRequest {
+                adapter_id: "memcrm".into(),
+                wiring_ref: "wiring/memcrm.map.yaml".into(),
+                rationale: "register bridge".into(),
+                grant: BridgeGrantDto {
+                    origins: vec!["https://crm.example.com".into()],
+                    secret_names: vec![
+                        "suitecrm_client_id".into(),
+                        "suitecrm_client_secret".into(),
+                    ],
+                    dsn_name: Some("suitecrm_dsn".into()),
+                    fuel: 50_000,
+                },
+            })
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<governor::ActionEnvelope>()
+            .await?;
+        assert_eq!(
+            bridge_register.state,
+            governor::EnvelopeState::PendingApproval
+        );
+        assert_eq!(bridge_register.domain, "bridges");
+        assert_eq!(bridge_register.action, "deploy_adapter");
+        assert_eq!(bridge_register.payload["adapter_id"], "memcrm");
+
+        let bridge_status = client
+            .get(format!("http://{addr}/v1/bridges/memcrm/status"))
+            .header("x-hydra-tenant", &tenant_header)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<BridgeStatusDto>()
+            .await?;
+        assert_eq!(bridge_status.adapter_id, "memcrm");
+        assert_eq!(bridge_status.state, "queued");
+        assert_eq!(bridge_status.envelope_id, Some(bridge_register.id));
+        assert_eq!(
+            bridge_status.envelope_state.as_deref(),
+            Some("PendingApproval")
+        );
+        assert_eq!(
+            bridge_status.wiring_ref.as_deref(),
+            Some("wiring/memcrm.map.yaml")
+        );
+
+        let paused_bridge = client
+            .post(format!("http://{addr}/v1/bridges/memcrm/pause"))
+            .header("x-hydra-tenant", &tenant_header)
+            .header("Authorization", "Bearer hydra-dev-admin")
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<BridgeStatusDto>()
+            .await?;
+        assert_eq!(paused_bridge.state, "paused");
+        assert_eq!(paused_bridge.envelope_id, Some(bridge_register.id));
+
+        let resumed_bridge = client
+            .post(format!("http://{addr}/v1/bridges/memcrm/resume"))
+            .header("x-hydra-tenant", &tenant_header)
+            .header("Authorization", "Bearer hydra-dev-admin")
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<BridgeStatusDto>()
+            .await?;
+        assert_eq!(resumed_bridge.state, "queued");
+        assert_eq!(resumed_bridge.envelope_id, Some(bridge_register.id));
 
         let created = client
             .post(format!("http://{addr}/v1/entities/party"))
@@ -290,8 +391,11 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
             .error_for_status()?
             .json::<Vec<governor::ActionEnvelope>>()
             .await?;
-        assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].id, proposed.id);
+        assert_eq!(pending.len(), 2);
+        assert!(pending
+            .iter()
+            .any(|envelope| envelope.id == bridge_register.id));
+        assert!(pending.iter().any(|envelope| envelope.id == proposed.id));
 
         let approved = client
             .post(format!(

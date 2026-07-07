@@ -16,6 +16,18 @@ pub async fn openapi() -> Json<Value> {
                 "get": { "summary": "List autonomy cells" },
                 "put": { "summary": "Replace autonomy cells" }
             },
+            "/v1/bridges": {
+                "post": { "summary": "Register a bridge adapter via an envelope-gated request" }
+            },
+            "/v1/bridges/{id}/status": {
+                "get": { "summary": "Read bridge deployment status" }
+            },
+            "/v1/bridges/{id}/pause": {
+                "post": { "summary": "Pause bridge activity" }
+            },
+            "/v1/bridges/{id}/resume": {
+                "post": { "summary": "Resume bridge activity" }
+            },
             "/v1/entities/{kind}": {
                 "get": { "summary": "List entities by kind" },
                 "post": { "summary": "Create an entity" }
