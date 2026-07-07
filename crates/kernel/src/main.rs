@@ -1,71 +1,87 @@
-//! layer L6 operations entrypoint and health surface placeholder for EP-001.
+//! layer L6 operations entrypoint and health surface placeholder for EP-003 persistence work.
 
-use std::env;
-use std::net::{AddrParseError, SocketAddr};
+mod config;
+mod relay;
 
-use axum::{routing::get, Router};
-use thiserror::Error;
-use tracing::warn;
+use std::process::ExitCode;
 
-#[derive(Debug, Error)]
+use async_nats::Client as NatsClient;
+use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Router};
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
+use tokio::sync::watch;
+use tracing::{error, info, warn};
+
+use crate::config::{Config, ConfigError};
+
+#[derive(Clone)]
+struct AppState {
+    pool: PgPool,
+    nats: NatsClient,
+}
+
+#[derive(Debug, thiserror::Error)]
 enum KernelError {
-    #[error("invalid HYDRA_BIND value '{raw}': {source}")]
-    InvalidBind { raw: String, source: AddrParseError },
+    #[error(transparent)]
+    Config(#[from] ConfigError),
+    #[error("failed to connect postgres: {0}")]
+    Postgres(#[from] sqlx::Error),
+    #[error("failed to connect nats: {0}")]
+    Nats(String),
     #[error("failed to bind {bind}: {source}")]
     Bind {
-        bind: SocketAddr,
+        bind: std::net::SocketAddr,
         source: std::io::Error,
     },
     #[error("failed to read local address: {0}")]
     LocalAddr(std::io::Error),
     #[error("server exited with error: {0}")]
     Serve(std::io::Error),
-}
-
-#[derive(Clone, Debug)]
-struct Config {
-    bind: SocketAddr,
-    database_url: Option<String>,
-    nats_url: Option<String>,
-}
-
-impl Config {
-    fn validate() -> Result<Self, KernelError> {
-        let bind_raw = env::var("HYDRA_BIND").unwrap_or_else(|_| "127.0.0.1:8080".to_owned());
-        let bind = bind_raw
-            .parse()
-            .map_err(|source| KernelError::InvalidBind {
-                raw: bind_raw,
-                source,
-            })?;
-
-        Ok(Self {
-            bind,
-            database_url: env::var("DATABASE_URL").ok(),
-            nats_url: env::var("NATS_URL").ok(),
-        })
-    }
+    #[error("relay task join error: {0}")]
+    RelayJoin(tokio::task::JoinError),
 }
 
 #[tokio::main]
-async fn main() -> Result<(), KernelError> {
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .with_target(false)
-        .compact()
-        .init();
+async fn main() -> ExitCode {
+    init_tracing();
 
+    match run().await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(KernelError::Config(error)) => {
+            error!("{error}");
+            ExitCode::from(78)
+        }
+        Err(error) => {
+            error!("{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+async fn run() -> Result<(), KernelError> {
     let config = Config::validate()?;
-    if config.database_url.is_none() {
-        warn!("DATABASE_URL missing; continuing because EP-001 only requires optional DB wiring.");
-    }
-    if config.nats_url.is_none() {
-        warn!("NATS_URL missing; continuing because EP-001 only requires optional NATS wiring.");
-    }
+    let _config_touch = (
+        &config.hydra_vault_key,
+        &config.hydra_base_url,
+        config.hydra_env,
+        &config.deepseek_api_key,
+        &config.anthropic_api_key,
+        &config.openai_compat_base_url,
+        config.tk_hit_ratio_target,
+        config.tk_output_budget_bytes,
+    );
+    let pool = connect_pool(&config).await?;
+    let nats = connect_nats(&config).await?;
 
-    let app = Router::new().route("/healthz", get(healthz));
+    let state = AppState {
+        pool: pool.clone(),
+        nats: nats.clone(),
+    };
+    let app = Router::new()
+        .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
+        .with_state(state);
+
     let listener = tokio::net::TcpListener::bind(config.bind)
         .await
         .map_err(|source| KernelError::Bind {
@@ -74,11 +90,78 @@ async fn main() -> Result<(), KernelError> {
         })?;
     let local_addr = listener.local_addr().map_err(KernelError::LocalAddr)?;
 
-    tracing::info!("hydra: listening on {local_addr}");
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let relay_handle = tokio::spawn(relay::run(shutdown_rx, pool.clone(), nats.clone()));
 
-    axum::serve(listener, app).await.map_err(KernelError::Serve)
+    info!("hydra: listening on {local_addr}");
+
+    let shutdown_signal = shutdown_tx.clone();
+    let server = axum::serve(listener, app).with_graceful_shutdown(async move {
+        if let Err(error) = tokio::signal::ctrl_c().await {
+            warn!(error = %error, "ctrl_c listener failed; shutting down kernel");
+        }
+        let _ = shutdown_signal.send(true);
+    });
+
+    let serve_result = server.await.map_err(KernelError::Serve);
+    let _ = shutdown_tx.send(true);
+    let relay_result = relay_handle.await.map_err(KernelError::RelayJoin);
+    let _ = nats.flush().await;
+
+    serve_result?;
+    relay_result?;
+    Ok(())
+}
+
+fn init_tracing() {
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .with_target(false)
+        .compact()
+        .init();
+}
+
+async fn connect_pool(config: &Config) -> Result<PgPool, KernelError> {
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&config.database_url)
+        .await?;
+    sqlx::query!("SELECT 1 as \"one!\"")
+        .fetch_one(&pool)
+        .await?;
+    Ok(pool)
+}
+
+async fn connect_nats(config: &Config) -> Result<NatsClient, KernelError> {
+    let client = async_nats::connect(&config.nats_url)
+        .await
+        .map_err(|error| KernelError::Nats(error.to_string()))?;
+    client
+        .flush()
+        .await
+        .map_err(|error| KernelError::Nats(error.to_string()))?;
+    Ok(client)
 }
 
 async fn healthz() -> &'static str {
     "ok"
+}
+
+async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
+    if let Err(error) = sqlx::query!("SELECT 1 as \"one!\"")
+        .fetch_one(&state.pool)
+        .await
+    {
+        warn!(error = %error, "readyz postgres check failed");
+        return (StatusCode::SERVICE_UNAVAILABLE, "postgres");
+    }
+
+    if let Err(error) = state.nats.flush().await {
+        warn!(error = %error, "readyz nats check failed");
+        return (StatusCode::SERVICE_UNAVAILABLE, "nats");
+    }
+
+    (StatusCode::OK, "ok")
 }

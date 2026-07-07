@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE entity\n                    SET kind = $3,\n                        body = $4,\n                        origin = $5,\n                        origin_ref = $6,\n                        version = $7,\n                        deleted_at = NULL,\n                        updated_at = now()\n                    WHERE tenant_id = $1 AND id = $2\n                    RETURNING\n                        id,\n                        kind,\n                        tenant_id,\n                        body as \"body!: Json<Value>\",\n                        origin,\n                        origin_ref,\n                        version\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "body!: Json<Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "origin",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "origin_ref",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "0745c03e4fba8c68ed15c82228c207bc4162ebcb98f19e15b8a27ebd78eaa763"
+}

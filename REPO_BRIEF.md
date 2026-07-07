@@ -21,6 +21,7 @@ Use this file as the fast repo-orientation note before deeper reading. It is int
 - `.agent/PLANS.md`
 - Active ExecPlan in `.agent/execplans/`
 - `PROJECT_BRIEF.md`
+- `DECISIONS.md` when dependency or runtime choices are in scope
 
 ## Working Loop
 
@@ -34,6 +35,8 @@ Use this file as the fast repo-orientation note before deeper reading. It is int
 
 - `crates/`: Rust workspace code
 - `.agent/`: plans, specs, prompts, checklists
+- `.sqlx/`: committed offline query metadata for checked SQLx macros
+- `vendor/sqlx/` and `vendor/sqlx-macros-core/`: repo-local Postgres-only SQLx hardening patch; touch only when SQLx build or audit work points there
 - `scripts/`: allowed command wrappers
 - `reference/`: informative copy-adapt implementations
 - `docker/`: local services
@@ -50,6 +53,7 @@ Use this file as the fast repo-orientation note before deeper reading. It is int
 - Prefix shell commands with `rtk`.
 - On this machine, Git Bash via `C:/Progra~1/Git/usr/bin/sh.exe` is the reliable path for repo shell scripts.
 - Use `rtk proxy cmd /c git ...` when native git output is the cleanest Windows path.
+- Re-run `cargo sqlx prepare --workspace -- --all-targets` after checked-query edits so `.sqlx/` stays authoritative for both runtime code and integration-test macros.
 
 ## When Git Looks Wrong
 

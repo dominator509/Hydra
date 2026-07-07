@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE envelope\n        SET state = $3,\n            doc = $4,\n            updated_at = now()\n        WHERE tenant_id = $1 AND id = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fdf1ceace50dfe6509738423af423fcdc520356c98fe330d17057f4b817abe95"
+}

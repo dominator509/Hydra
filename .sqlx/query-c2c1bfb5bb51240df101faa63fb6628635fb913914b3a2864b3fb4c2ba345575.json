@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO envelope_transition (envelope_id, ts, from_state, to_state, actor)\n        VALUES ($1, ($2::text)::timestamptz, $3, $4, $5)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c2c1bfb5bb51240df101faa63fb6628635fb913914b3a2864b3fb4c2ba345575"
+}

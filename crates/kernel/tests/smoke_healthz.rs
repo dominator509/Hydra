@@ -16,26 +16,58 @@ async fn smoke_healthz() -> Result<(), Box<dyn std::error::Error>> {
     let bin = std::env::var("CARGO_BIN_EXE_hydra-kernel")?;
     let mut child = Command::new(bin)
         .env("HYDRA_BIND", addr.to_string())
+        .env(
+            "DATABASE_URL",
+            std::env::var("DATABASE_URL")
+                .unwrap_or_else(|_| "postgres://hydra:hydra@localhost:5432/hydra".to_owned()),
+        )
+        .env(
+            "NATS_URL",
+            std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_owned()),
+        )
+        .env("HYDRA_VAULT_KEY", "SET_LOCAL_DEV_VAULT_KEY")
+        .env("HYDRA_BASE_URL", "http://127.0.0.1:8080")
+        .env("HYDRA_ENV", "dev")
+        .env("TK_HIT_RATIO_TARGET", "0.97")
+        .env("TK_OUTPUT_BUDGET_BYTES", "16384")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
 
-    let response = wait_for_healthz(addr, &mut child).await;
+    let healthz = wait_for_endpoint(addr, "/healthz", &mut child).await;
+    let readyz = wait_for_endpoint(addr, "/readyz", &mut child).await;
     let _ = shutdown_child(&mut child);
-    let response = response?;
+    let healthz = healthz?;
+    let readyz = readyz?;
 
-    if !response.contains("200 OK") {
+    if !healthz.contains("200 OK") {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("expected HTTP 200 from /healthz, got response: {response}"),
+            format!("expected HTTP 200 from /healthz, got response: {healthz}"),
         )
         .into());
     }
 
-    if !response.contains("\r\n\r\nok") {
+    if !healthz.contains("\r\n\r\nok") {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("expected body 'ok' from /healthz, got response: {response}"),
+            format!("expected body 'ok' from /healthz, got response: {healthz}"),
+        )
+        .into());
+    }
+
+    if !readyz.contains("200 OK") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("expected HTTP 200 from /readyz, got response: {readyz}"),
+        )
+        .into());
+    }
+
+    if !readyz.contains("\r\n\r\nok") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("expected body 'ok' from /readyz, got response: {readyz}"),
         )
         .into());
     }
@@ -50,8 +82,9 @@ fn reserve_addr() -> io::Result<SocketAddr> {
     Ok(addr)
 }
 
-async fn wait_for_healthz(
+async fn wait_for_endpoint(
     addr: SocketAddr,
+    path: &str,
     child: &mut Child,
 ) -> Result<String, Box<dyn std::error::Error>> {
     // Windows child-process startup can occasionally lag enough to miss the
@@ -60,12 +93,12 @@ async fn wait_for_healthz(
     for _ in 0..HEALTHZ_WAIT_ATTEMPTS {
         if let Some(status) = child.try_wait()? {
             return Err(io::Error::other(format!(
-                "hydra-kernel exited before /healthz was reachable: {status}"
+                "hydra-kernel exited before {path} was reachable: {status}"
             ))
             .into());
         }
 
-        match fetch_healthz(addr).await {
+        match fetch_path(addr, path).await {
             Ok(response)
                 if response.starts_with("HTTP/1.1") || response.starts_with("HTTP/1.0") =>
             {
@@ -77,17 +110,16 @@ async fn wait_for_healthz(
 
     Err(io::Error::new(
         io::ErrorKind::TimedOut,
-        format!("timed out waiting for /healthz on {addr}"),
+        format!("timed out waiting for {path} on {addr}"),
     )
     .into())
 }
 
-async fn fetch_healthz(addr: SocketAddr) -> io::Result<String> {
+async fn fetch_path(addr: SocketAddr, path: &str) -> io::Result<String> {
     let mut stream = TcpStream::connect(addr).await?;
-    stream
-        .write_all(b"GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-        .await?;
-    stream.shutdown().await?;
+    let request = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).await?;
+    stream.flush().await?;
 
     let mut bytes = Vec::new();
     stream.read_to_end(&mut bytes).await?;

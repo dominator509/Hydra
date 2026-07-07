@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO edge (src, rel, dst)\n            VALUES ($1, $2, $3)\n            ON CONFLICT (src, rel, dst) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0915a01b9dacda9220fb93e0fe79dd9f77f1985f99ebb8c09418bc2acefd5f9d"
+}

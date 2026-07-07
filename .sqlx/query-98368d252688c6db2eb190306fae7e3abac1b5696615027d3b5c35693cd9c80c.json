@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO autonomy_cell (tenant_id, domain, action, kind, level, cfg)\n            VALUES ($1, $2, $3, $4, $5, $6)\n            ON CONFLICT (tenant_id, domain, action, kind_key) DO UPDATE\n            SET level = EXCLUDED.level,\n                cfg = EXCLUDED.cfg\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "98368d252688c6db2eb190306fae7e3abac1b5696615027d3b5c35693cd9c80c"
+}

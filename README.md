@@ -23,6 +23,21 @@ On this Windows machine, the reliable preflight path is:
 rtk C:/Progra~1/Git/usr/bin/sh.exe -lc 'bash scripts/preflight.sh'
 ```
 
+## Local Boot
+
+When you need the full EP-003 persistence seam locally:
+
+```bash
+rtk proxy cmd /c docker compose -f docker/compose.yaml up -d postgres nats
+rtk C:/Progra~1/Git/usr/bin/sh.exe -lc 'bash scripts/db-setup.sh'
+rtk cargo run -p hydra-kernel
+rtk C:/Progra~1/Git/usr/bin/sh.exe -lc 'bash scripts/smoke-test.sh'
+```
+
+`.sqlx/` is versioned on purpose. Keep it in sync with checked-query changes by rerunning `cargo sqlx prepare --workspace -- --all-targets` after migration or query edits so integration-test macros stay covered too.
+
+The workspace intentionally vendors `vendor/sqlx/` and `vendor/sqlx-macros-core/` as a Postgres-only SQLx hardening layer so `cargo audit` and `cargo deny` reflect the backend Hydra actually ships.
+
 ## Execution Model
 
 - Work exactly one ExecPlan at a time.
@@ -46,6 +61,7 @@ rtk C:/Progra~1/Git/usr/bin/sh.exe -lc 'bash scripts/preflight.sh'
 
 - Prefix external shell commands with `rtk`.
 - Keep commits scoped to one logical change.
+- Keep `.sqlx/` tracked; it is part of the repo's offline-compile contract.
 - Before pushing, prove branch state with:
 
 ```bash

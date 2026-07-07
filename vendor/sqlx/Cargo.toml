@@ -1,0 +1,47 @@
+[package]
+name = "sqlx"
+version = "0.8.6"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Hydra-local Postgres-only SQLx facade"
+publish = false
+
+[dependencies]
+sqlx-core = { version = "=0.8.6", features = ["offline", "migrate"] }
+sqlx-macros = { version = "=0.8.6", optional = true }
+sqlx-postgres = { version = "=0.8.6", optional = true }
+
+[features]
+default = []
+json = [
+  "sqlx-core/json",
+  "sqlx-macros?/json",
+  "sqlx-postgres?/json",
+]
+macros = [
+  "dep:sqlx-macros",
+  "sqlx-macros/macros",
+]
+migrate = [
+  "sqlx-core/migrate",
+  "sqlx-macros?/migrate",
+  "sqlx-postgres?/migrate",
+]
+postgres = [
+  "dep:sqlx-postgres",
+  "sqlx-macros?/postgres",
+]
+runtime-tokio = [
+  "sqlx-core/_rt-tokio",
+  "sqlx-macros?/_rt-tokio",
+]
+time = [
+  "sqlx-core/time",
+  "sqlx-macros?/time",
+  "sqlx-postgres?/time",
+]
+uuid = [
+  "sqlx-core/uuid",
+  "sqlx-macros?/uuid",
+  "sqlx-postgres?/uuid",
+]

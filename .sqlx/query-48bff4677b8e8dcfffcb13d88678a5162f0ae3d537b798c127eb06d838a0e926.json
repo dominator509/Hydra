@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            id,\n            event as \"event!: Json<Value>\"\n        FROM outbox\n        WHERE published_at IS NULL\n        ORDER BY id\n        LIMIT $1\n        FOR UPDATE SKIP LOCKED\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "event!: Json<Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "48bff4677b8e8dcfffcb13d88678a5162f0ae3d537b798c127eb06d838a0e926"
+}

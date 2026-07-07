@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                domain,\n                action,\n                kind,\n                level,\n                cfg as \"cfg!: Json<Value>\"\n            FROM autonomy_cell\n            WHERE tenant_id = $1\n            ORDER BY domain, action, kind_key\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "domain",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "action",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "level",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "cfg!: Json<Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b161a6b56410eed45f77b6e50cbac5d79a80c5463cca4069a426e32afe6d66c8"
+}

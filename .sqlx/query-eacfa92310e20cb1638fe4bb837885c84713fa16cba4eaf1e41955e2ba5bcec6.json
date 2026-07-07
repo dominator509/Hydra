@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE event_log\n            SET kind = 'tamper'\n            WHERE seq = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eacfa92310e20cb1638fe4bb837885c84713fa16cba4eaf1e41955e2ba5bcec6"
+}

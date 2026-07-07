@@ -11,6 +11,7 @@ Package manager rule: cargo only. npm/pnpm/yarn/pip are forbidden in this reposi
 | Install | `bash scripts/install.sh` | `install: ok` |
 | Lint | `bash scripts/lint.sh` | `lint: ok` |
 | Format check | `bash scripts/format-check.sh` | `format check: ok` |
+| Format apply (recovery) | `cargo fmt --all` | exit 0 |
 | Typecheck | `bash scripts/typecheck.sh` | `typecheck: ok` |
 | Unit tests | `bash scripts/test-unit.sh` | `unit tests: ok` |
 | Integration tests | `bash scripts/test-integration.sh` | `integration tests: ok` |
@@ -18,6 +19,7 @@ Package manager rule: cargo only. npm/pnpm/yarn/pip are forbidden in this reposi
 | Build | `bash scripts/build.sh` | `build: ok` |
 | Security check | `bash scripts/security-check.sh` | `security check: ok` |
 | Dependency audit | `bash scripts/dependency-audit.sh` | `dependency audit: ok` |
+| Lockfile refresh (recovery) | `cargo generate-lockfile` | exit 0 |
 | Smoke test | `bash scripts/smoke-test.sh` | `smoke test: ok` |
 | Full verification | `bash scripts/verify.sh` | `verify: ok` |
 | Cache-hit audit (TOKENKILLER) | `bash scripts/cache-hit-audit.sh` | `cache-hit audit: ok (ratio=0.9XX)` |
@@ -41,6 +43,8 @@ Underlying tool expectations (installed by scripts/install.sh): rustup toolchain
 
 ## Recovery instructions
 - Script fails → read its stderr; each script names the failing sub-step. Apply AGENTS.md §7 bounded retry.
-- sqlx compile-time query errors → `bash scripts/db-setup.sh && cargo sqlx prepare --workspace`.
+- format diffs after `bash scripts/format-check.sh` → `cargo fmt --all`, then rerun `bash scripts/format-check.sh`.
+- stale Cargo.lock after dependency-feature pruning → `cargo generate-lockfile`, then rerun the security/dependency gates.
+- sqlx compile-time query errors → `bash scripts/db-setup.sh && cargo sqlx prepare --workspace -- --all-targets`.
 - Wasmtime/adapter build fails → `wasm-tools validate adapters/<name>.wasm` for a narrower diagnostic.
 - docker services unhealthy → `docker compose logs --tail=50 postgres nats`.

@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id,\n                kind,\n                tenant_id,\n                body as \"body!: Json<Value>\",\n                origin,\n                origin_ref,\n                version\n            FROM entity\n            WHERE tenant_id = $1\n              AND kind = $2\n              AND deleted_at IS NULL\n              AND ($3::uuid IS NULL OR id > $3)\n            ORDER BY id\n            LIMIT $4\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "body!: Json<Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "origin",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "origin_ref",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "8358d6e0a84468730f8fe2278b700ad65ba53523cfbe8f38ba9ad25b5f787429"
+}

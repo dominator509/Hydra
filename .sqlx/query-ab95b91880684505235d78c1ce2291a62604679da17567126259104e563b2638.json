@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO tk_ledger (\n                ts,\n                tenant_id,\n                route,\n                provider,\n                prefix_sha,\n                hit_tokens,\n                miss_tokens,\n                out_tokens,\n                out_bytes,\n                aborted,\n                cost_cents\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Bool",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ab95b91880684505235d78c1ce2291a62604679da17567126259104e563b2638"
+}

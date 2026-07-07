@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id,\n                kind,\n                tenant_id,\n                body as \"body!: Json<Value>\",\n                origin,\n                origin_ref,\n                version\n            FROM entity\n            WHERE tenant_id = $1\n              AND id = $2\n              AND deleted_at IS NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "body!: Json<Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "origin",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "origin_ref",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "5cb77d44c4ec6d91807557d091efdfd14f5fc39677f98eb9c709e9e85e3dcfb2"
+}

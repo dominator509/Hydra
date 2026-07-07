@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE edge\n            SET body = $4\n            WHERE src = $1 AND rel = $2 AND dst = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6a47a3a2771fe2ed77ded068e6bdc6663556782ed1eeff3caa138f2d0bcf0e83"
+}

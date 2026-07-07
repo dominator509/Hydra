@@ -16,6 +16,8 @@
 /.serena/memories/
 /.serena/project.local.yml
 
+# Keep /.sqlx/ tracked: it is required for sqlx offline query checks.
+
 # Editor files
 /.idea/
 /.vscode/
