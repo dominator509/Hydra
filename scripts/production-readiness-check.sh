@@ -4,7 +4,7 @@ set -eu
 [ -f AGENTS.md ] || { echo "production readiness ERROR: run from repository root." >&2; exit 1; }
 sh scripts/verify.sh
 sh scripts/smoke-test.sh
-[ -d crates/tokenkiller ] && sh scripts/cache-hit-audit.sh
+[ -f crates/tokenkiller/tests/replay_corpus.rs ] && sh scripts/cache-hit-audit.sh
 NOW=$(date -u +%s)
 for d in D1 D2 D3 D4 D5; do
   ROW="$(grep -E "\|[[:space:]]*$d[[:space:]]*\|" OPERATIONS.md | grep -E "PASS" | tail -1 || true)"

@@ -22,9 +22,9 @@ Package manager rule: cargo only. npm/pnpm/yarn/pip are forbidden in this reposi
 | Full verification | `bash scripts/verify.sh` | `verify: ok` |
 | Cache-hit audit (TOKENKILLER) | `bash scripts/cache-hit-audit.sh` | `cache-hit audit: ok (ratio=0.9XX)` |
 | Production readiness | `bash scripts/production-readiness-check.sh` | `production readiness: ok` |
-| Local dev (stateful services) | `docker compose up -d postgres nats` | containers healthy |
+| Local dev (stateful services) | `docker compose -f docker/compose.yaml up -d postgres nats` | containers healthy |
 | Local dev (kernel+shell) | `cargo run -p hydra-kernel` | `hydra: listening on :8080` log line |
-| Local DB setup | `bash scripts/db-setup.sh` (created in EP-003) | `db setup: ok` |
+| Local DB setup | `bash scripts/db-setup.sh` | `db setup: ok` |
 | Migrations | `cargo sqlx migrate run` (after EP-003) | `Applied N migrations` |
 | Single crate check (diagnostic) | `cargo check -p <crate>` | exit 0 |
 | Single test (diagnostic) | `cargo test -p <crate> <name> -- --nocapture` | exit 0 |

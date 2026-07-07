@@ -3,6 +3,7 @@
 set -eu
 [ -f AGENTS.md ] || { echo "cache-hit audit ERROR: run from repository root." >&2; exit 1; }
 [ -d crates/tokenkiller ] || { echo "cache-hit audit ERROR: crates/tokenkiller missing. Execute EP-004 first." >&2; exit 1; }
+[ -f crates/tokenkiller/tests/replay_corpus.rs ] || { echo "cache-hit audit ERROR: replay corpus test missing. Execute EP-004 first." >&2; exit 1; }
 TARGET="${TK_HIT_RATIO_TARGET:-0.97}"
 OUT="$(cargo test -p tokenkiller --test replay_corpus -- --nocapture 2>&1)" || { printf '%s\n' "$OUT" >&2; echo "cache-hit audit ERROR: replay_corpus test failed." >&2; exit 1; }
 RATIO="$(printf '%s\n' "$OUT" | sed -n 's/.*tk-corpus ratio: \([0-9.]*\).*/\1/p' | tail -1)"

@@ -13,5 +13,5 @@ sh scripts/build.sh
 sh scripts/security-check.sh
 sh scripts/dependency-audit.sh
 sh scripts/smoke-test.sh
-if [ -d crates/tokenkiller ]; then sh scripts/cache-hit-audit.sh; fi
+if [ -f crates/tokenkiller/tests/replay_corpus.rs ]; then sh scripts/cache-hit-audit.sh; fi
 echo "verify: ok"

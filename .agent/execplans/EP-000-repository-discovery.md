@@ -37,13 +37,21 @@ All four expected outputs seen; discovery.md complete; if ANY unexpected source 
 Everything read-only or overwrite-safe; rerun any milestone freely; resume = check which sections exist in discovery.md.
 
 ## 12. Progress
-- [ ] M1 inventory  - [ ] M2 toolchain  - [ ] M3 detection  - [ ] M4 assumptions+risks
+- [x] M1 inventory  - [x] M2 toolchain  - [x] M3 detection  - [x] M4 assumptions+risks
 
 ## 13. Surprises & Discoveries
-(append findings)
+- 2026-07-07 - The repo is still a docs/scripts/reference-only blueprint pack: no `Cargo.toml`, no `.github/workflows/`, and no `.env*` files exist yet, so EP-001 remains the first workspace-creating plan.
+- 2026-07-07 - Local tooling state directories `.agents`, `.obsidian`, and `.serena` exist in the checkout tree but are not product source; discovery must treat them as local context rather than brownfield code.
+- 2026-07-07 - `wasm-tools` and `cargo sqlx` are missing on PATH; Docker is installed but emits a user-config access warning; Git status is clean but also emits a user ignore-file permission warning.
 
 ## 14. Decision Log
-(append)
+- 2026-07-07 - Treated EP-000 as the active plan even though `scripts/preflight.sh` notes EP-001 for an uninitialized workspace. Reason: EP-000 is still unticked, `.agent/state/discovery.md` was missing, and the user objective explicitly includes EP-000 through EP-010.
+- 2026-07-07 - Used the explicit Git Bash binary `/usr/bin/find` for M1 inventory after Windows resolved plain `find` to `find.exe`. Smallest reversible fix that preserved the milestone's intended `find . -maxdepth 2 -not -path './.git*' | sort` semantics.
+- 2026-07-07 - Left `ARCHITECTURE.md` unchanged. Discovery found no unexpected brownfield product source code; only local tooling state plus the expected blueprint docs, scripts, and `reference/` material were present.
+- 2026-07-07 - Updated this ExecPlan file in addition to the listed artifact files because AGENTS.md and `.agent/PLANS.md` require in-place Progress, Decision Log, and Outcomes updates as part of plan execution. Smallest reversible control-plane exception.
 
 ## 15. Outcomes & Retrospective
-(fill at completion)
+- EP-000 completed with all four validation commands green: `inventory: ok`, `toolchain: ok`, `detect: ok`, and `assumptions: ok`.
+- Greenfield status was confirmed: the repo is not yet a Rust workspace and still needs EP-001 to materialize crates, CI, env files, and the command targets that preflight and later plans expect.
+- Discovery produced `.agent/state/discovery.md` as the durable handoff artifact and converted each assumption row into an evidence-backed `VERIFIED-GREENFIELD` or `DELTA` state.
+- Follow-up risks for EP-001: install `wasm-tools` and `cargo sqlx`, watch Docker's unreadable user config warning if compose becomes flaky, and ignore local-only `.obsidian`/`.serena` state while building the workspace.

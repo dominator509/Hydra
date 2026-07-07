@@ -10,7 +10,7 @@ if git ls-files 2>/dev/null | xargs -r grep -nE "$PATTERNS" -- 2>/dev/null; then
   echo "security check ERROR: potential secret material matched above patterns." >&2; exit 1
 fi
 if [ -f Cargo.toml ]; then
-  command -v cargo-audit >/dev/null 2>&1 || { echo "security check ERROR: cargo-audit missing. Run: bash scripts/install.sh" >&2; exit 1; }
+  cargo audit --version >/dev/null 2>&1 || { echo "security check ERROR: cargo audit missing. Run: bash scripts/install.sh" >&2; exit 1; }
   cargo audit
 fi
 if [ -f docker/alerts.yaml ]; then
