@@ -22,6 +22,7 @@ Package manager rule: cargo only. npm/pnpm/yarn/pip are forbidden in this reposi
 | Lockfile refresh (recovery) | `cargo generate-lockfile` | exit 0 |
 | Smoke test | `bash scripts/smoke-test.sh` | `smoke test: ok` |
 | Full verification | `bash scripts/verify.sh` | `verify: ok` |
+| Build adapters | `bash scripts/build-adapters.sh` | `adapters: ok` |
 | Cache-hit audit (TOKENKILLER) | `bash scripts/cache-hit-audit.sh` | `cache-hit audit: ok (ratio=0.9XX)` |
 | Production readiness | `bash scripts/production-readiness-check.sh` | `production readiness: ok` |
 | Local dev (stateful services) | `docker compose -f docker/compose.yaml up -d postgres nats` | containers healthy |
@@ -46,5 +47,6 @@ Underlying tool expectations (installed by scripts/install.sh): rustup toolchain
 - format diffs after `bash scripts/format-check.sh` → `cargo fmt --all`, then rerun `bash scripts/format-check.sh`.
 - stale Cargo.lock after dependency-feature pruning → `cargo generate-lockfile`, then rerun the security/dependency gates.
 - sqlx compile-time query errors → `bash scripts/db-setup.sh && cargo sqlx prepare --workspace -- --all-targets`.
+- bridge adapter build fails before compilation starts → `rustup target add wasm32-wasip2`, then rerun `bash scripts/build-adapters.sh`.
 - Wasmtime/adapter build fails → `wasm-tools validate adapters/<name>.wasm` for a narrower diagnostic.
 - docker services unhealthy → `docker compose logs --tail=50 postgres nats`.

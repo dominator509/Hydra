@@ -1,0 +1,116 @@
+// reference/bridge/hydra-bridge.wit — NORMATIVE-when-copied to wit/hydra-bridge.wit (SPEC-003).
+// The ONLY ABI between HYDRA and legacy-CRM adapters. Any language that compiles to a
+// WASI 0.2 component can implement `adapter`; the kernel implements `host`.
+// Version discipline: hydra:bridge@MAJOR.MINOR.PATCH — MAJOR bump = HYDRA major bump (RELEASE.md).
+
+package hydra:bridge@1.0.0;
+
+interface types {
+  /// Canonical record envelope crossing the boundary. `data` is a JSON object string;
+  /// the host validates it against the kind's JSON Schema before CDM ingest.
+  record raw-record {
+    kind: string,          // legacy kind name, e.g. "Contacts"
+    id: string,            // legacy primary id
+    etag: option<string>,  // optimistic concurrency token if the CRM has one
+    data: string,          // JSON object (UTF-8)
+  }
+
+  record page { records: list<raw-record>, next-cursor: option<string> }
+
+  record change {
+    op: change-op,
+    rec: raw-record,       // for deleted: last-known id/kind, data may be "{}"
+  }
+  enum change-op { upserted, deleted }
+
+  record change-page { changes: list<change>, next-cursor: string }
+
+  /// Adapter self-description consumed by the wiring UI and the conformance harness.
+  record descriptor {
+    name: string,
+    version: string,
+    kinds: list<string>,
+    caps: capabilities,
+  }
+  record capabilities {
+    read: bool,
+    write: bool,
+    incremental-sync: bool, // false ⇒ kernel falls back to full-relist diffing
+    etags: bool,
+    server-side-query: bool,
+  }
+
+  /// Field-level schema for one legacy kind (drives wiring synthesis).
+  record field-schema { name: string, ty: string, required: bool, enum-values: list<string> }
+
+  variant bridge-error {
+    auth-expired(string),        // kernel: pause adapter + alert (SPEC-006)
+    rate-limited(u32),           // kernel: sleep retry-after seconds
+    conflict(string),            // kernel: park record in review queue
+    not-found(string),
+    invalid(string),             // adapter-side validation failure
+    upstream(string),            // kernel: exp backoff 3x then park adapter
+  }
+}
+
+/// Capabilities the HOST grants to adapters. Every call is mediated: allow-lists,
+/// named secrets, fuel. Adapters have NO ambient authority (INV-2).
+interface host {
+  use types.{bridge-error};
+
+  record http-request {
+    method: string,
+    url: string,                 // must match the adapter grant's origin allow-list
+    headers: list<tuple<string,string>>,
+    body: option<list<u8>>,
+  }
+  record http-response { status: u16, headers: list<tuple<string,string>>, body: list<u8> }
+
+  /// Egress ONLY through here; the host routes via the egress proxy which enforces
+  /// the same allow-list again (defense in depth, SECURITY.md).
+  http: func(req: http-request) -> result<http-response, bridge-error>;
+
+  /// Secrets by NAME from the adapter's grant; raw values never persist adapter-side.
+  secret: func(name: string) -> result<string, bridge-error>;
+
+  /// Adapter-scoped scratch KV (cursors, token caches). Not CDM data.
+  kv-get: func(key: string) -> option<string>;
+  kv-set: func(key: string, value: string);
+
+  /// Optional read-replica SQL for DB-level legacy access; grant must name a DSN.
+  sql-query: func(query: string, params: list<string>) -> result<string, bridge-error>;
+
+  log: func(level: string, msg: string);
+  now-ms: func() -> u64;
+}
+
+/// What every adapter must export. Conformance (EP-004 M3) drives EXACTLY this surface.
+interface adapter {
+  use types.{raw-record, page, change-page, descriptor, field-schema, bridge-error};
+
+  describe: func() -> descriptor;
+
+  /// Config is adapter-defined JSON (endpoint URLs, tenant slug...). Never credentials —
+  /// those come via host.secret. Probe must round-trip auth and return capability truth.
+  probe: func(config-json: string) -> result<descriptor, bridge-error>;
+
+  introspect-schema: func(kind: string) -> result<list<field-schema>, bridge-error>;
+
+  %list: func(kind: string, cursor: option<string>, limit: u32) -> result<page, bridge-error>;
+  get: func(kind: string, id: string) -> result<raw-record, bridge-error>;
+
+  /// Idempotent upsert; honors etag when caps.etags (mismatch ⇒ conflict).
+  upsert: func(rec: raw-record) -> result<raw-record, bridge-error>;
+
+  /// Soft-delete semantics where the CRM supports it; hard-delete CRMs must tombstone.
+  delete: func(kind: string, id: string) -> result<_, bridge-error>;
+
+  /// Incremental feed. Cursor "" means from-beginning. Returned cursor MUST be stable:
+  /// replaying it yields no earlier changes (conformance property: cursor monotonicity).
+  changes-since: func(cursor: string, limit: u32) -> result<change-page, bridge-error>;
+}
+
+world bridge {
+  import host;
+  export adapter;
+}

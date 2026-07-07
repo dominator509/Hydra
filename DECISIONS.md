@@ -15,6 +15,8 @@
 | 0010 | EP-002 core-domain crates use jsonschema, time, and proptest | Accepted | 2026-07-07 | Codex |
 | 0011 | EP-003 persistence/runtime uses sqlx offline metadata and async-nats relay plumbing | Accepted | 2026-07-07 | Codex |
 | 0012 | EP-003 SQLx audit hardening uses a repo-local Postgres-only vendor patch | Accepted | 2026-07-07 | Codex |
+| 0013 | EP-004 bridge ABI M1 uses wit-bindgen plus a workspace fixture adapter build path | Accepted | 2026-07-07 | Codex |
+| 0014 | EP-004 bridge-host uses Wasmtime 38 bindgen flags, scoped unsafe, and repo-local store bridging | Accepted | 2026-07-07 | Codex |
 
 ## ADR index
 ADRs live inline below; new ADRs append using `.agent/templates/adr-template.md`.
@@ -48,6 +50,18 @@ Context: `cargo audit` stayed red after the EP-003 persistence work because SQLx
 Decision: replace the workspace `sqlx` dependency with a repo-local Postgres-only facade under `vendor/sqlx` and patch `sqlx-macros-core` under `vendor/sqlx-macros-core` so the lockfile no longer carries optional MySQL or SQLite packages that Hydra never ships. Keep the public SQLx macro/runtime surface Hydra already uses so the store and kernel code remain unchanged above the dependency boundary.
 Alternatives: add a repo-local audit ignore for `RUSTSEC-2023-0071` (rejected: hides a red gate instead of shrinking the dependency surface), replace SQLx entirely with a different Postgres stack inside EP-003 (rejected: far too large a drift from the spec and the already-working checked-query path), or wait for an upstream SQLx fix (rejected: no fixed release was available and EP-003 needed a green verify gate now).
 Consequences: `cargo audit`, `cargo deny`, and `bash scripts/verify.sh` are green again while Hydra still uses SQLx's checked-query workflow, but the repo now owns a small vendor patch set that should be retired once upstream SQLx ships an audit-clean equivalent. The vendored `sqlx-macros-core` copy also carries warning-only `unexpected_cfgs` noise that is acceptable for now but worth cleaning up when the vendor patch is revisited.
+
+### ADR-0013 EP-004 bridge ABI M1 binding/tooling set
+Context: EP-004 M1 needs the normative `hydra:bridge@1.0.0` WIT world checked into `wit/`, Rust guest bindings for both imported host calls and exported adapter traits, and a hand-written fixture adapter that can be deterministically rebuilt into `adapters/memcrm.wasm` on this Windows machine.
+Decision: pin `wit-bindgen` 0.57.1 in `crates/bridge-wit`, keep the normative WIT file at `wit/hydra-bridge.wit`, and add `fixtures/adapter-memcrm` as a workspace fixture crate built through `bash scripts/build-adapters.sh` by staging the already-componentized `wasm32-wasip2` artifact directly into `adapters/memcrm.wasm`. Require the Rust `wasm32-wasip2` target explicitly instead of inventing a custom adapter build flow.
+Alternatives: hand-write host/guest ABI glue without `wit-bindgen` (rejected: too error-prone for the repo's normative ABI), defer the fixture adapter until Wasmtime host work lands (rejected: EP-004 M1 explicitly requires an adapter artifact before M2/M3), or keep the fixture crate outside the workspace with a separate lockfile (rejected: weaker reproducibility and a messier repo contract).
+Consequences: Hydra gets a single-source-of-truth WIT contract plus a repeatable local adapter artifact path, while the repo takes on one new pinned binding dependency and one extra toolchain prerequisite (`rustup target add wasm32-wasip2`). Later EP-004 milestones can build the host and conformance layers on top of the same checked-in ABI without re-deriving it.
+
+### ADR-0014 EP-004 bridge-host binding/runtime shape
+Context: EP-004 M2 needs `bridge-host` to instantiate the Rust-built fixture component through `wasmtime 38.0.4`, expose the WIT host surface asynchronously, persist adapter KV state via `store`, and keep the Wasmtime boundary isolated to one crate under Hydra's architecture rules. The current Wasmtime macro surface differs from the older reference sketch, and the generated bindings emit internal `unsafe` blocks that conflict with the workspace-wide forbid lint.
+Decision: add `wasmtime`, `reqwest`, `async-trait`, and `anyhow` to the workspace for the bridge-host seam; configure `crates/bridge-host` bindings with `imports: { default: async | trappable }` and `exports: { default: async }`; use `wasmtime::component::HasSelf<HostState>` plus a marker `types::Host` impl to satisfy the generated linker API; and scope `unsafe_code = "allow"` to `crates/bridge-host` only while preserving `clippy::unwrap_used = "deny"` there. Keep adapter scratch state persisted through `crates/store/src/adapter_kv.rs` rather than adding SQL in bridge-host.
+Alternatives: keep the older `bindgen!({ async: true })` reference syntax (rejected: invalid for Wasmtime 38), rewrite `AdapterKvRepo` calls around ad hoc host-local maps (rejected: violates the intended persistence seam), or relax the workspace unsafe lint globally (rejected: far broader than the single Wasmtime boundary Hydra already isolates).
+Consequences: the repo now has a truthful bridge-host compilation surface for Wasmtime 38 and adapter KV storage, but M2 still needs explicit WASI preview2/resource wiring before Rust-built fixture components instantiate cleanly. The unsafe exception stays local to the one crate that already owns the Wasmtime trust boundary.
 
 ## Rules for adding decisions
 Any new dependency, schema change, ABI change, autonomy-cell default change, or S0–S2 prompt-segment change requires an ADR entry BEFORE merge.

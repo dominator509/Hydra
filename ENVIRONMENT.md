@@ -1,7 +1,7 @@
 # ENVIRONMENT.md
 
 ## Required tools & versions
-rustup (Rust 1.79+ pinned in rust-toolchain.toml), cargo components: rustfmt, clippy; cargo-audit ≥0.20, cargo-deny ≥0.14, sqlx-cli ≥0.7 (`cargo install sqlx-cli --no-default-features --features postgres`), wasm-tools ≥1.200, docker + compose v2, jq, curl, ripgrep. Package manager: cargo only.
+rustup (Rust 1.79+ pinned in rust-toolchain.toml) plus the `wasm32-wasip2` target, cargo components: rustfmt, clippy; cargo-audit ≥0.20, cargo-deny ≥0.14, sqlx-cli ≥0.7 (`cargo install sqlx-cli --no-default-features --features postgres`), wasm-tools ≥1.200, docker + compose v2, jq, curl, ripgrep. Package manager: cargo only.
 
 ## Environment variables
 | Name | Req | Env | Example | Secret | Description | Validation |
@@ -34,4 +34,4 @@ Same compose file + Caddyfile; HYDRA_ENV=staging|prod; real DNS + TLS via Caddy;
 Kernel boots through `config::validate()` — missing required vars print a single table of failures and exit 78.
 
 ## Troubleshooting
-sqlx offline errors → `cargo sqlx prepare --workspace`; NATS refuse → check compose ports 4222; vault decrypt fail → key mismatch, regenerate only in dev.
+sqlx offline errors → `cargo sqlx prepare --workspace`; adapter component build fails immediately → `rustup target add wasm32-wasip2`; NATS refuse → check compose ports 4222; vault decrypt fail → key mismatch, regenerate only in dev.
