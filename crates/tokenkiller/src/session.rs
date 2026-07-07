@@ -52,6 +52,7 @@ pub struct CompletionRequest {
 
 #[derive(Debug, Clone, Default)]
 pub struct CompletionResponse {
+    pub provider: String,
     pub chunks: Vec<String>,
     pub usage: CacheUsage,
     pub out_tokens: u64,
@@ -267,7 +268,11 @@ impl Session {
             ts: self.clock.now(),
             tenant_id: self.tenant_id,
             route: route.to_owned(),
-            provider: cfg.provider.clone(),
+            provider: if response.provider.is_empty() {
+                cfg.provider.clone()
+            } else {
+                response.provider.clone()
+            },
             prefix_sha: prefix_sha_hex(&prompt.prefix_sha),
             usage: response.usage,
             out_tokens: response.out_tokens,
@@ -432,6 +437,7 @@ mod tests {
     #[tokio::test]
     async fn tk_session_repairs_after_nuke_once() -> Result<(), Box<dyn std::error::Error>> {
         let first = CompletionResponse {
+            provider: "deepseek".into(),
             chunks: vec!["x".repeat(1024)],
             usage: CacheUsage {
                 hit_tokens: 10,
@@ -441,6 +447,7 @@ mod tests {
             cost_cents: 7,
         };
         let second = CompletionResponse {
+            provider: "deepseek".into(),
             chunks: vec![r#"{"domain":"pipeline","action":"move_stage","targets":["d1"],"payload":{"stage":"won"},"rationale":"90d idle","reversal":"Compensating","blast":{"entities":1,"external_sends":0,"money_cents":0,"pii_egress":false}}"#.into()],
             usage: CacheUsage {
                 hit_tokens: 30,
@@ -495,6 +502,7 @@ mod tests {
     async fn tk_session_repairs_contract_violation_once() -> Result<(), Box<dyn std::error::Error>>
     {
         let first = CompletionResponse {
+            provider: "deepseek".into(),
             chunks: vec!["not json".into()],
             usage: CacheUsage {
                 hit_tokens: 1,
@@ -504,6 +512,7 @@ mod tests {
             cost_cents: 1,
         };
         let second = CompletionResponse {
+            provider: "deepseek".into(),
             chunks: vec![r#"{"domain":"pipeline","action":"move_stage","targets":["d1"],"payload":{"stage":"won"},"rationale":"90d idle","reversal":"Compensating","blast":{"entities":1,"external_sends":0,"money_cents":0,"pii_egress":false}}"#.into()],
             usage: CacheUsage {
                 hit_tokens: 2,

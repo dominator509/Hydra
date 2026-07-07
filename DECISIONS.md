@@ -18,6 +18,7 @@
 | 0013 | EP-004 bridge ABI M1 uses wit-bindgen plus a workspace fixture adapter build path | Accepted | 2026-07-07 | Codex |
 | 0014 | EP-004 bridge-host uses Wasmtime 38 bindgen flags, scoped unsafe, and repo-local store bridging | Accepted | 2026-07-07 | Codex |
 | 0015 | EP-004 TOKENKILLER core uses canonicalization/hash deps plus local router and ledger seams | Accepted | 2026-07-07 | Codex |
+| 0016 | EP-004 llm-router M5 uses YAML route loading, provider fakes, and direct TOKENKILLER integration | Accepted | 2026-07-07 | Codex |
 
 ## ADR index
 ADRs live inline below; new ADRs append using `.agent/templates/adr-template.md`.
@@ -69,6 +70,12 @@ Context: EP-004 M4 needs canonical prompt bytes that match SPEC-009/reference be
 Decision: add workspace `ryu`, `sha2`, and `unicode-normalization`, then use `async-trait`, `serde_json`, `store`, `time`, `uuid`, and `thiserror` inside `crates/tokenkiller` with `proptest` and `tokio` as dev-dependencies. Implement TOKENKILLER as six internal modules (`canon`, `prefix`, `nukeguard`, `contracts`, `ledger`, and `session`) and keep `Session` generic over local async `Router` and `LedgerSink` traits, with `StoreLedgerSink` bridging persisted usage into `store::LedgerRepo` until EP-004 M5 lands the concrete provider stack.
 Alternatives: wait for M5 and build TOKENKILLER only after `llm-router` is real (rejected: violates milestone order and leaves Hydra without its only permitted LLM call path), couple M4 directly to the placeholder `llm-router` crate (rejected: would fake an unfinished dependency surface), or keep the crate placeholder-green with zero tests (rejected: makes the milestone validation meaningless).
 Consequences: Hydra now has a real TOKENKILLER core with deterministic canonicalization, stable prefix hashing, append-only transcript support, budget enforcement, contract repair-once behavior, and persistent ledger math that can be reused by the later provider layer. The router/provider implementation remains decoupled, so M5 can plug real providers into `Session` without rewriting the M4 public seam.
+
+### ADR-0016 EP-004 llm-router M5 dependency and integration shape
+Context: EP-004 M5 needs a real multi-provider router with ordered route chains, structural PII gating, provider-specific usage parsing, cost estimates, and a cache-aware DeepSeek fake for tests. At the same time, `crates/fabric` is still a placeholder, and M4 already established `tokenkiller::Session` as the only allowed LLM call path with a local router trait.
+Decision: add local `serde_yaml` and dev-only `wiremock` to `crates/llm-router`; keep `reqwest` behind a small local `JsonHttpClient` inside the crate for now; implement YAML-backed `RouteCfg` loading plus provider modules for Anthropic, DeepSeek, and OpenAI-compatible endpoints; have `llm-router::Router` implement `tokenkiller::Router` directly; and extend `tokenkiller::CompletionResponse` with the actual responding provider so fallback winners land truthfully in the ledger.
+Alternatives: wait for M7 to build `fabric::egress` before landing any real router/provider code (rejected: violates milestone order and blocks M6 replay work), call `reqwest` ad hoc from each provider without a shared client seam (rejected: harder to swap or audit later), or keep the ledger provider sourced only from the route's preferred provider name (rejected: incorrect as soon as fallback or degradation takes effect).
+Consequences: Hydra now has a real llm-router crate with deterministic route loading, chain traversal, structural PII enforcement, provider-aware accounting, and a reusable DeepSeek cache fake that M6 can drive through TOKENKILLER. The egress seam remains local and easy to replace once Fabric's broader surface exists, and the router now composes with `Session::complete` without another shared-crate extraction step.
 
 ## Rules for adding decisions
 Any new dependency, schema change, ABI change, autonomy-cell default change, or S0–S2 prompt-segment change requires an ADR entry BEFORE merge.
