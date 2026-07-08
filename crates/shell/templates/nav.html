@@ -1,0 +1,50 @@
+<nav class="sidebar-nav">
+    <a href="/pipelines"
+       hx-boost="true"
+       class="{% if current_page == "pipelines" %}active{% endif %}"
+       aria-current="{% if current_page == "pipelines" %}page{% endif %}">
+        <span class="nav-icon">&#8644;</span>
+        <span class="nav-text">Pipelines</span>
+    </a>
+    <a href="/approvals"
+       hx-boost="true"
+       class="{% if current_page == "approvals" %}active{% endif %}"
+       aria-current="{% if current_page == "approvals" %}page{% endif %}">
+        <span class="nav-icon">&#9745;</span>
+        <span class="nav-text">Approvals</span>
+        <span class="nav-badge"
+              hx-get="/approvals/count"
+              hx-trigger="every 5s"
+              hx-swap="innerHTML"
+              hx-target="this">0</span>
+    </a>
+    <a href="/bridges"
+       hx-boost="true"
+       class="{% if current_page == "bridges" %}active{% endif %}"
+       aria-current="{% if current_page == "bridges" %}page{% endif %}">
+        <span class="nav-icon">&#8646;</span>
+        <span class="nav-text">Bridges</span>
+    </a>
+    <a href="/agents"
+       hx-boost="true"
+       class="{% if current_page == "agents" %}active{% endif %}"
+       aria-current="{% if current_page == "agents" %}page{% endif %}">
+        <span class="nav-icon">&#9881;</span>
+        <span class="nav-text">Agents</span>
+    </a>
+    <a href="/autonomy"
+       hx-boost="true"
+       class="{% if current_page == "autonomy" %}active{% endif %}"
+       aria-current="{% if current_page == "autonomy" %}page{% endif %}">
+        <span class="nav-icon">&#9883;</span>
+        <span class="nav-text">Autonomy</span>
+    </a>
+</nav>
+<div class="sidebar-footer">
+    <form action="/logout" method="post">
+        {{ csrf|safe }}
+        <button type="submit" class="btn btn-sm btn-outline" style="width:100%;color:var(--sidebar-text);border-color:rgba(255,255,255,0.15);background:transparent;">
+            Logout
+        </button>
+    </form>
+</div>

@@ -9,10 +9,10 @@ use axum::Router;
 pub use error::{FabricError, ProblemJson};
 pub use services::{
     AppState, AutonomyCellDto, AutonomyService, BlastRadiusDto, BridgeGrantDto,
-    BridgeRegisterRequest, BridgeService, BridgeStatusDto, EntityDeleteResponse, EntityService,
-    EnvelopeCreateRequest, EnvelopeService, StoreAutonomyService, StoreBridgeService,
-    StoreEntityService, StoreEnvelopeService, StoreTkStatsService, TkRouteStat, TkStatsService,
-    TkWindowStats,
+    BridgeRegisterRequest, BridgeService, BridgeStatusDto, ConciergePingResponse, ConciergeService,
+    ConciergeServiceImpl, EntityDeleteResponse, EntityService, EnvelopeCreateRequest,
+    EnvelopeService, StoreAutonomyService, StoreBridgeService, StoreEntityService,
+    StoreEnvelopeService, StoreTkStatsService, TkRouteStat, TkStatsService, TkWindowStats,
 };
 
 pub fn app(state: AppState) -> Router {

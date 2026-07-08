@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                kind,\n                actor,\n                payload as \"payload!: Json<serde_json::Value>\"\n            FROM event_log\n            WHERE tenant_id = $1\n            ORDER BY seq DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "actor",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "payload!: Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "09074edea1d2bc1ced493c30242e7ba13d2a51b5df8283b3cc9478a6cd84eb26"
+}

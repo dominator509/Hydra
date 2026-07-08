@@ -1,0 +1,217 @@
+{% extends "layout.html" %}
+
+{% block head %}
+<style>
+    .bridge-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 16px 20px;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        transition: box-shadow 0.15s;
+    }
+
+    .bridge-card:hover {
+        box-shadow: var(--shadow-lg);
+    }
+
+    .bridge-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .bridge-info .bridge-adapter {
+        font-weight: 600;
+        font-size: 15px;
+        margin-bottom: 2px;
+    }
+
+    .bridge-info .bridge-meta {
+        font-size: 12px;
+        color: var(--text-secondary);
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 6px;
+        align-items: center;
+    }
+
+    .bridge-info .bridge-meta span {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .bridge-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+    }
+
+    .register-card {
+        background: var(--card-bg);
+        border: 2px dashed var(--border-color);
+        border-radius: var(--radius);
+        padding: 24px;
+        margin-top: 24px;
+    }
+
+    .register-card h3 {
+        margin: 0 0 16px 0;
+        font-size: 16px;
+        font-weight: 600;
+    }
+
+    .register-form {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 12px;
+        align-items: end;
+    }
+
+    .register-form .form-group {
+        margin-bottom: 0;
+    }
+
+    .register-form .btn {
+        height: 38px;
+    }
+
+    @media (max-width: 700px) {
+        .register-form {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .bridge-list-empty {
+        text-align: center;
+        padding: 40px;
+    }
+
+    .bridge-list-empty .empty-icon {
+        font-size: 40px;
+        margin-bottom: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header flex-between">
+    <div>
+        <h2>Bridges</h2>
+        <p class="subtitle">Registered bridge adapters and their current status</p>
+    </div>
+</div>
+
+<div id="bridges-list">
+{% if bridges.len() == 0 %}
+<div class="card bridge-list-empty">
+    <div class="empty-icon">&#8646;</div>
+    <div class="text-muted">No bridges registered yet.</div>
+    <div class="text-muted text-small mt-1">Use the form below to register a new bridge adapter.</div>
+</div>
+{% endif %}
+
+{% for bridge in bridges %}
+<div class="bridge-card" id="bridge-{{ bridge.adapter_id }}">
+    <div class="bridge-info">
+        <div class="bridge-adapter">{{ bridge.adapter_id }}</div>
+        <div class="bridge-meta">
+            <span class="chip {% if bridge.state == "active" %}chip-active{% else %}chip-inactive{% endif %}">
+                {{ bridge.state }}
+            </span>
+            {% if let Some(wiring) = bridge.wiring_ref %}
+            <span>&#128279; {{ wiring }}</span>
+            {% endif %}
+            {% if let Some(env_id) = bridge.envelope_id %}
+            <span>&#128196; {{ env_id }}</span>
+            {% endif %}
+            {% if let Some(env_state) = bridge.envelope_state %}
+            <span class="chip chip-{{ env_state }}">{{ env_state }}</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="bridge-actions">
+        {% if bridge.state == "active" %}
+        <form action="/bridges/{{ bridge.adapter_id }}/pause" method="post"
+              hx-post="/bridges/{{ bridge.adapter_id }}/pause"
+              hx-target="#bridge-{{ bridge.adapter_id }}"
+              hx-swap="outerHTML"
+              hx-confirm="Pause adapter '{{ bridge.adapter_id }}'?">
+            {{ csrf|safe }}
+            <button type="submit" class="btn btn-sm btn-outline">Pause</button>
+        </form>
+        {% endif %}
+
+        {% if bridge.state == "paused" %}
+        <form action="/bridges/{{ bridge.adapter_id }}/resume" method="post"
+              hx-post="/bridges/{{ bridge.adapter_id }}/resume"
+              hx-target="#bridge-{{ bridge.adapter_id }}"
+              hx-swap="outerHTML"
+              hx-confirm="Resume adapter '{{ bridge.adapter_id }}'?">
+            {{ csrf|safe }}
+            <button type="submit" class="btn btn-sm btn-success">Resume</button>
+        </form>
+        {% endif %}
+
+        {% if bridge.state == "inactive" %}
+        <form action="/bridges/{{ bridge.adapter_id }}/resume" method="post"
+              hx-post="/bridges/{{ bridge.adapter_id }}/resume"
+              hx-target="#bridge-{{ bridge.adapter_id }}"
+              hx-swap="outerHTML"
+              hx-confirm="Reactivate adapter '{{ bridge.adapter_id }}'?">
+            {{ csrf|safe }}
+            <button type="submit" class="btn btn-sm btn-success">Reactivate</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+</div>
+
+<div class="register-card">
+    <h3>Register New Bridge</h3>
+    <form action="/bridges/register" method="post" class="register-form"
+          hx-post="/bridges/register"
+          hx-target="#bridges-list"
+          hx-swap="beforeend">
+        {{ csrf|safe }}
+        <div class="form-group">
+            <label for="adapter_id">Adapter ID</label>
+            <input type="text" id="adapter_id" name="adapter_id" class="form-input"
+                   placeholder="e.g. zoom-webhook" required>
+        </div>
+        <div class="form-group">
+            <label for="wiring_ref">Wiring Reference</label>
+            <input type="text" id="wiring_ref" name="wiring_ref" class="form-input"
+                   placeholder="e.g. wiring/zoom-v1" required>
+        </div>
+        <div class="form-group">
+            <label for="rationale">Rationale</label>
+            <input type="text" id="rationale" name="rationale" class="form-input"
+                   placeholder="Why is this bridge needed?" required>
+        </div>
+        <div class="form-group">
+            <label for="fuel">Fuel (grant)</label>
+            <input type="number" id="fuel" name="fuel" class="form-input"
+                   placeholder="100" min="1" value="100" required>
+        </div>
+        <div class="form-group">
+            <label for="origins">Allowed Origins</label>
+            <input type="text" id="origins" name="origins" class="form-input"
+                   placeholder="comma-separated origins">
+        </div>
+        <div class="form-group">
+            <label for="secret_names">Secret Names</label>
+            <input type="text" id="secret_names" name="secret_names" class="form-input"
+                   placeholder="comma-separated secret names">
+        </div>
+        <button type="submit" class="btn btn-primary">Register Bridge</button>
+    </form>
+</div>
+{% endblock %}

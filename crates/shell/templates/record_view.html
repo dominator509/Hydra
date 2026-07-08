@@ -1,0 +1,209 @@
+{% extends "layout.html" %}
+
+{% block head %}
+<style>
+    .record-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+
+    @media (max-width: 900px) {
+        .record-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .detail-table {
+        width: 100%;
+    }
+
+    .detail-table tr {
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .detail-table tr:last-child {
+        border-bottom: none;
+    }
+
+    .detail-table td {
+        padding: 8px 0;
+        vertical-align: top;
+        font-size: 14px;
+    }
+
+    .detail-table .detail-label {
+        font-weight: 600;
+        color: var(--text-secondary);
+        width: 35%;
+        padding-right: 12px;
+        white-space: nowrap;
+    }
+
+    .detail-table .detail-value {
+        word-break: break-word;
+    }
+
+    .activity-stream {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .activity-stream li {
+        padding: 10px 0;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 14px;
+    }
+
+    .activity-stream li:last-child {
+        border-bottom: none;
+    }
+
+    .activity-stream .event-actor {
+        font-weight: 600;
+    }
+
+    .activity-stream .event-kind {
+        color: var(--text-secondary);
+        font-size: 12px;
+    }
+
+    .activity-stream .event-ts {
+        color: var(--text-secondary);
+        font-size: 12px;
+        display: block;
+        margin-top: 2px;
+    }
+
+    .action-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+    }
+
+    .state-chip-inline {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 12px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header flex-between">
+    <div>
+        <h2>{{ entity.kind }} &mdash; {{ entity.id }}</h2>
+        <p class="subtitle">Version {{ entity.version }} &middot; Origin: {{ entity.origin }}</p>
+    </div>
+    <div class="flex-center">
+        {% if let Some(agent_state) = entity.agent_state %}
+        <span class="chip chip-{{ agent_state.css_class }}">{{ agent_state.label }}</span>
+        {% endif %}
+        <span class="chip chip-active">v{{ entity.version }}</span>
+    </div>
+</div>
+
+<div class="record-grid">
+    <div>
+        <div class="card">
+            <div class="card-header">Entity Fields</div>
+            <table class="detail-table">
+                {% for field in entity.fields %}
+                <tr>
+                    <td class="detail-label">{{ field.name }}</td>
+                    <td class="detail-value">
+                        {% if field.url.is_some() %}
+                        <a href="{{ field.url.as_ref().unwrap() }}" hx-boost="true">{{ field.value }}</a>
+                        {% else %}
+                        {% if field.code %}
+                        <code>{{ field.value }}</code>
+                        {% else %}
+                        {{ field.value }}
+                        {% endif %}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                <tr>
+                    <td class="detail-label">ID</td>
+                    <td class="detail-value"><code>{{ entity.id }}</code></td>
+                </tr>
+                <tr>
+                    <td class="detail-label">Kind</td>
+                    <td class="detail-value">{{ entity.kind }}</td>
+                </tr>
+                <tr>
+                    <td class="detail-label">Version</td>
+                    <td class="detail-value">{{ entity.version }}</td>
+                </tr>
+                <tr>
+                    <td class="detail-label">Origin</td>
+                    <td class="detail-value">{{ entity.origin }}
+                        {% if let Some(origin_ref) = entity.origin_ref %}
+                        / {{ origin_ref }}
+                        {% endif %}
+                    </td>
+                </tr>
+            </table>
+
+            <div class="action-buttons">
+                <form action="/pipelines/{{ entity.id }}/action" method="post"
+                      hx-post="/pipelines/{{ entity.id }}/action"
+                      hx-target="#action-result"
+                      hx-swap="innerHTML">
+                    {{ csrf|safe }}
+                    <input type="hidden" name="action" value="draft_follow_up">
+                    <button type="submit" class="btn btn-sm btn-outline"
+                            hx-confirm="Draft a follow-up action for this record?">Draft Follow-up</button>
+                </form>
+
+                <form action="/pipelines/{{ entity.id }}/action" method="post"
+                      hx-post="/pipelines/{{ entity.id }}/action"
+                      hx-target="#action-result"
+                      hx-swap="innerHTML">
+                    {{ csrf|safe }}
+                    <input type="hidden" name="action" value="score">
+                    <button type="submit" class="btn btn-sm btn-outline"
+                            hx-confirm="Run scoring against this record?">Score</button>
+                </form>
+
+                <form action="/pipelines/{{ entity.id }}/action" method="post"
+                      hx-post="/pipelines/{{ entity.id }}/action"
+                      hx-target="#action-result"
+                      hx-swap="innerHTML">
+                    {{ csrf|safe }}
+                    <input type="hidden" name="action" value="enrich">
+                    <button type="submit" class="btn btn-sm btn-outline"
+                            hx-confirm="Enrich this record with additional data?">Enrich</button>
+                </form>
+            </div>
+
+            <div id="action-result" class="mt-2"></div>
+        </div>
+    </div>
+
+    <div>
+        <div class="card">
+            <div class="card-header">Activity Stream</div>
+            {% if events.len() == 0 %}
+            <div class="text-muted text-small" style="padding: 12px 0;">No events recorded for this entity.</div>
+            {% endif %}
+            <ul class="activity-stream">
+                {% for event in events %}
+                <li>
+                    <div>
+                        <span class="event-actor">{{ event.actor }}</span>
+                        <span class="event-kind">{{ event.kind }}</span>
+                    </div>
+                    <div>{{ event.summary }}</div>
+                    <span class="event-ts">{{ event.timestamp }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO adapter_kv (adapter_id, k, v)\n            VALUES ($1, $2, $3)\n            ON CONFLICT (adapter_id, k)\n            DO UPDATE SET v = EXCLUDED.v\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d234eb0da95f4e056bcfe3a62e6a6c07811ffe204c8a931c77908673cd5e64ea"
+}

@@ -1,0 +1,244 @@
+{% extends "layout.html" %}
+
+{% block head %}
+<style>
+    .agents-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+        gap: 16px;
+    }
+
+    .agent-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 20px;
+        transition: box-shadow 0.15s;
+    }
+
+    .agent-card:hover {
+        box-shadow: var(--shadow-lg);
+    }
+
+    .agent-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .agent-header .agent-name {
+        font-weight: 600;
+        font-size: 16px;
+    }
+
+    .agent-route {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: 12px;
+        padding: 6px 10px;
+        background: var(--content-bg);
+        border-radius: var(--radius);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .agent-route .route-name {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 12px;
+    }
+
+    .agent-sparkline {
+        font-size: 14px;
+        letter-spacing: 1px;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        white-space: nowrap;
+    }
+
+    .agent-sparkline .spark-fill {
+        color: var(--success);
+    }
+
+    .agent-sparkline .spark-empty {
+        color: var(--border-color);
+    }
+
+    .agent-sparkline .spark-pct {
+        font-size: 12px;
+        margin-left: 6px;
+        color: var(--text-secondary);
+        letter-spacing: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .agent-actions-list {
+        list-style: none;
+        padding: 0;
+        margin: 12px 0 0 0;
+    }
+
+    .agent-actions-list li {
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 13px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .agent-actions-list li:last-child {
+        border-bottom: none;
+    }
+
+    .agent-actions-list .action-name {
+        color: var(--text-primary);
+    }
+
+    .agent-actions-list .action-time {
+        color: var(--text-secondary);
+        font-size: 11px;
+        white-space: nowrap;
+    }
+
+    .agent-card .section-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-secondary);
+        margin-top: 14px;
+        margin-bottom: 4px;
+    }
+
+    .agents-empty {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 60px 20px;
+    }
+
+    .agents-empty .empty-icon {
+        font-size: 40px;
+        margin-bottom: 8px;
+    }
+
+    .agent-stats-table {
+        font-size: 12px;
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .agent-stats-table td {
+        padding: 4px 0;
+    }
+
+    .agent-stats-table .stat-label {
+        color: var(--text-secondary);
+        padding-right: 12px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header flex-between">
+    <div>
+        <h2>Agent Console</h2>
+        <p class="subtitle">{{ agents.len() }} agent{% if agents.len() != 1 %}s{% endif %} registered</p>
+    </div>
+    <div class="flex-center">
+        <span class="chip chip-active">&#9679; Live</span>
+    </div>
+</div>
+
+<div class="agents-grid">
+{% if agents.len() == 0 %}
+<div class="agents-empty">
+    <div class="empty-icon">&#9881;</div>
+    <div class="text-muted">No agents registered.</div>
+    <div class="text-muted text-small mt-1">Agents appear here once they register with the shell.</div>
+</div>
+{% endif %}
+
+{% for agent in agents %}
+<div class="agent-card">
+    <div class="agent-header">
+        <span class="agent-name">{{ agent.name }}</span>
+        <span class="chip {% if agent.online %}chip-active{% else %}chip-inactive{% endif %}">
+            {% if agent.online %}Online{% else %}Offline{% endif %}
+        </span>
+    </div>
+
+    <div class="agent-route">
+        <span class="route-name">{{ agent.route_name }}</span>
+        {% if agent.hit_ratio.is_some() %}
+        {% if agent.hit_pct >= 90 %}
+        <span class="agent-sparkline"><span class="spark-fill">&#9608;&#9608;&#9608;&#9608;&#9608;</span>
+        {% else %}
+        {% if agent.hit_pct >= 70 %}
+        <span class="agent-sparkline"><span class="spark-fill">&#9608;&#9608;&#9608;&#9608;</span><span class="spark-empty">&#9608;</span>
+        {% else %}
+        {% if agent.hit_pct >= 50 %}
+        <span class="agent-sparkline"><span class="spark-fill">&#9608;&#9608;&#9608;</span><span class="spark-empty">&#9608;&#9608;</span>
+        {% else %}
+        {% if agent.hit_pct >= 30 %}
+        <span class="agent-sparkline"><span class="spark-fill">&#9608;&#9608;</span><span class="spark-empty">&#9608;&#9608;&#9608;</span>
+        {% else %}
+        {% if agent.hit_pct >= 10 %}
+        <span class="agent-sparkline"><span class="spark-fill">&#9608;</span><span class="spark-empty">&#9608;&#9608;&#9608;&#9608;</span>
+        {% else %}
+        <span class="agent-sparkline"><span class="spark-empty">&#9608;&#9608;&#9608;&#9608;&#9608;</span>
+        {% endif %}
+        {% endif %}
+        {% endif %}
+        {% endif %}
+        {% endif %}
+            <span class="spark-pct">{{ agent.hit_pct }}%</span>
+        </span>
+        {% else %}
+        <span class="text-muted text-small">No data</span>
+        {% endif %}
+    </div>
+
+    <div class="section-label">Last Actions</div>
+    {% if agent.recent_actions.len() == 0 %}
+    <div class="text-muted text-small" style="padding: 6px 0;">No actions recorded yet.</div>
+    {% endif %}
+    <ul class="agent-actions-list">
+        {% for action in agent.recent_actions %}
+        <li>
+            <span class="action-name">{{ action.name }}</span>
+            <span class="action-time">{{ action.timestamp }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+
+    {% if let Some(tk_stats) = agent.tk_window_stats %}
+    <div class="section-label">Token Killer &mdash; {{ tk_stats.window }} window</div>
+    <table class="agent-stats-table">
+        {% for stat in tk_stats.routes %}
+        <tr>
+            <td class="stat-label">{{ stat.route }}</td>
+            <td>
+                {% if stat.hit_ratio.is_some() %}
+                {% if stat.hit_pct >= 80 %}
+                <span class="chip chip-active">{{ stat.hit_pct }}%</span>
+                {% else %}
+                {% if stat.hit_pct >= 50 %}
+                <span class="chip chip-queued">{{ stat.hit_pct }}%</span>
+                {% else %}
+                <span class="chip chip-failed">{{ stat.hit_pct }}%</span>
+                {% endif %}
+                {% endif %}
+                {% else %}
+                <span class="text-muted">N/A</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+</div>
+{% endfor %}
+</div>
+{% endblock %}

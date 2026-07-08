@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO autonomy_cell (tenant_id, domain, action, kind, level, cfg)\n                VALUES ($1, $2, $3, $4, $5, $6)\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8a34b010c3cce0a845ddd343d026897d38f6d49abfe636d628a1a0490ae283b8"
+}

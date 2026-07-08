@@ -40,7 +40,7 @@ fn write_value(value: &Value, out: &mut Vec<u8>) {
                 if index > 0 {
                     out.push(b',');
                 }
-                write_string(key, out);
+                write_key(key, out);
                 out.push(b':');
                 write_value(value, out);
             }
@@ -65,6 +65,26 @@ fn write_number(number: &serde_json::Number, out: &mut Vec<u8>) {
 fn write_string(text: &str, out: &mut Vec<u8>) {
     out.push(b'"');
     for ch in nfc(text).replace("\r\n", "\n").replace('\r', "\n").chars() {
+        match ch {
+            '"' => out.extend_from_slice(b"\\\""),
+            '\\' => out.extend_from_slice(b"\\\\"),
+            '\n' => out.extend_from_slice(b"\\n"),
+            '\t' => out.extend_from_slice(b"\\t"),
+            ch if (ch as u32) < 0x20 => {
+                out.extend_from_slice(format!("\\u{:04x}", ch as u32).as_bytes());
+            }
+            ch => {
+                let mut buffer = [0_u8; 4];
+                out.extend_from_slice(ch.encode_utf8(&mut buffer).as_bytes());
+            }
+        }
+    }
+    out.push(b'"');
+}
+
+fn write_key(text: &str, out: &mut Vec<u8>) {
+    out.push(b'"');
+    for ch in nfc(text).chars() {
         match ch {
             '"' => out.extend_from_slice(b"\\\""),
             '\\' => out.extend_from_slice(b"\\\\"),

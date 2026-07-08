@@ -1,0 +1,229 @@
+{% extends "layout.html" %}
+
+{% block head %}
+<style>
+    .pipeline-board {
+        display: flex;
+        gap: 16px;
+        overflow-x: auto;
+        padding-bottom: 16px;
+        min-height: 60vh;
+    }
+
+    .pipeline-column {
+        flex: 1;
+        min-width: 250px;
+        max-width: 320px;
+        background: #e9ecef;
+        border-radius: var(--radius);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .pipeline-column-header {
+        padding: 12px 14px;
+        font-weight: 600;
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--text-secondary);
+        background: var(--card-bg);
+        border-radius: var(--radius) var(--radius) 0 0;
+        border-bottom: 2px solid var(--accent);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .pipeline-column-header .deal-count {
+        font-size: 12px;
+        background: var(--border-color);
+        padding: 1px 8px;
+        border-radius: 10px;
+        color: var(--text-secondary);
+    }
+
+    .pipeline-column-body {
+        flex: 1;
+        padding: 8px;
+        overflow-y: auto;
+    }
+
+    .deal-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        transition: box-shadow 0.15s;
+    }
+
+    .deal-card:hover {
+        box-shadow: var(--shadow-lg);
+    }
+
+    .deal-card .deal-title {
+        font-weight: 600;
+        font-size: 14px;
+        margin-bottom: 4px;
+    }
+
+    .deal-card .deal-title a {
+        color: var(--text-primary);
+    }
+
+    .deal-card .deal-title a:hover {
+        color: var(--accent);
+    }
+
+    .deal-card .deal-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: 6px;
+    }
+
+    .deal-card .deal-value {
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .deal-card .deal-agent {
+        font-size: 11px;
+        color: var(--accent);
+        font-weight: 500;
+    }
+
+    .deal-card .deal-move-form {
+        margin-top: 8px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+    }
+
+    .deal-card .deal-move-form select {
+        flex: 1;
+        padding: 4px 8px;
+        font-size: 12px;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--card-bg);
+        font-family: inherit;
+    }
+
+    .deal-card .deal-move-form .btn {
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+
+    .new-deal-area {
+        margin-bottom: 20px;
+    }
+
+    .new-deal-form {
+        display: flex;
+        gap: 12px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .new-deal-form .form-group {
+        margin-bottom: 0;
+    }
+
+    .new-deal-form .form-input {
+        width: auto;
+        min-width: 180px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header flex-between">
+    <div>
+        <h2>Pipeline Board</h2>
+        <p class="subtitle">Deal stages and agent workflow</p>
+    </div>
+    <button class="btn btn-primary"
+            onclick="document.getElementById('new-deal-form').style.display = document.getElementById('new-deal-form').style.display === 'none' ? 'flex' : 'none'">
+        + New Deal
+    </button>
+</div>
+
+<div class="new-deal-area card" id="new-deal-form" style="display:none;">
+    <div class="card-header">Create New Deal</div>
+    <form action="/pipelines/new" method="post" class="new-deal-form">
+        {{ csrf|safe }}
+        <div class="form-group">
+            <label for="deal-title">Title</label>
+            <input type="text" id="deal-title" name="title" class="form-input" placeholder="Deal title" required>
+        </div>
+        <div class="form-group">
+            <label for="deal-stage">Stage</label>
+            <select id="deal-stage" name="stage" class="form-select" style="min-width:140px;">
+                {% for stage in stages %}
+                <option value="{{ stage.name }}">{{ stage.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="deal-value">Value (cents)</label>
+            <input type="number" id="deal-value" name="value_cents" class="form-input" placeholder="0" min="0" style="min-width:100px;">
+        </div>
+        <button type="submit" class="btn btn-primary">Create</button>
+    </form>
+</div>
+
+<div class="pipeline-board">
+    {% for stage in stages %}
+    <div class="pipeline-column">
+        <div class="pipeline-column-header">
+            <span>{{ stage.name }}</span>
+            <span class="deal-count">{{ stage.deals.len() }}</span>
+        </div>
+        <div class="pipeline-column-body">
+            {% if stage.deals.len() == 0 %}
+            <div class="text-muted text-small" style="text-align:center;padding:24px 8px;">
+                No deals in this stage
+            </div>
+            {% endif %}
+
+            {% for deal in stage.deals %}
+            <div class="deal-card" id="deal-{{ deal.id }}">
+                <div class="deal-title">
+                    <a href="/pipelines/{{ deal.id }}" hx-boost="true">{{ deal.title }}</a>
+                </div>
+                <div class="deal-meta">
+                    <span class="deal-value">{{ deal.formatted_value }}</span>
+                    {% if deal.agent_created %}
+                    <span class="deal-agent">&#9881; Agent</span>
+                    {% endif %}
+                </div>
+
+                {% if stage.stage_key != "closed_won" && stage.stage_key != "closed_lost" %}
+                <form action="/pipelines/{{ deal.id }}/move" method="post" class="deal-move-form"
+                      hx-post="/pipelines/{{ deal.id }}/move"
+                      hx-target="#deal-{{ deal.id }}"
+                      hx-swap="outerHTML">
+                    {{ csrf|safe }}
+                    <select name="to_stage">
+                        {% for target in stages %}
+                        <option value="{{ target.stage_key }}"
+                                {% if target.stage_key == stage.stage_key %}disabled{% endif %}>
+                            {{ target.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-outline">Move</button>
+                </form>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Welcome to Hydra</h2>
+    <p class="subtitle">Token-Killer orchestration shell &middot; Tenant: {{ tenant }}</p>
+</div>
+
+<div class="grid-4 mb-2">
+    <div class="card" style="text-align:center;">
+        <div style="font-size:28px;font-weight:700;color:var(--accent);">{{ stats.active_pipelines }}</div>
+        <div class="text-muted text-small" style="margin-top:4px;">Active Pipelines</div>
+    </div>
+    <div class="card" style="text-align:center;">
+        <div style="font-size:28px;font-weight:700;color:var(--chip-queued);">{{ stats.pending_approvals }}</div>
+        <div class="text-muted text-small" style="margin-top:4px;">Pending Approvals</div>
+    </div>
+    <div class="card" style="text-align:center;">
+        <div style="font-size:28px;font-weight:700;color:var(--success);">{{ stats.active_bridges }}</div>
+        <div class="text-muted text-small" style="margin-top:4px;">Active Bridges</div>
+    </div>
+    <div class="card" style="text-align:center;">
+        <div style="font-size:28px;font-weight:700;color:var(--text-secondary);">{{ stats.agents_online }}</div>
+        <div class="text-muted text-small" style="margin-top:4px;">Agents Online</div>
+    </div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <div class="card-header">Quick Actions</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            <a href="/pipelines" class="btn btn-primary" hx-boost="true">View Pipelines</a>
+            <a href="/approvals" class="btn btn-outline" hx-boost="true">Review Approvals</a>
+            <a href="/bridges" class="btn btn-outline" hx-boost="true">Manage Bridges</a>
+            <a href="/agents" class="btn btn-outline" hx-boost="true">Agent Console</a>
+            <a href="/autonomy" class="btn btn-outline" hx-boost="true">Autonomy Matrix</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">System Health</div>
+        <table class="table">
+            <tbody>
+                <tr>
+                    <td>Token Killer</td>
+                    <td><span class="chip chip-active">Online</span></td>
+                </tr>
+                <tr>
+                    <td>Governor</td>
+                    <td><span class="chip chip-active">Online</span></td>
+                </tr>
+                <tr>
+                    <td>Concierge</td>
+                    <td><span class="chip chip-active">Online</span></td>
+                </tr>
+                <tr>
+                    <td>Store</td>
+                    <td><span class="chip chip-active">Connected</span></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

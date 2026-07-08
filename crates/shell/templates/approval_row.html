@@ -1,0 +1,99 @@
+<div class="approval-row" id="envelope-{{ envelope.id }}">
+    <div class="approval-row-header" onclick="this.closest('.approval-row').classList.toggle('expanded')">
+        <div class="approval-main">
+            <div class="approval-domain">{{ envelope.domain }} / {{ envelope.action }}</div>
+            <div class="approval-rationale">{{ envelope.rationale }}</div>
+            <div class="approval-meta">
+                {{ envelope.id }} &middot;
+                {% if envelope.history.len() > 0 %}
+                Proposed {{ envelope.history[0].at_rfc3339 }}
+                {% endif %}
+                {% if let Some(kind) = envelope.kind %}
+                &middot; Kind: {{ kind }}
+                {% endif %}
+            </div>
+        </div>
+        <div class="approval-action-btns">
+            <form action="/approvals/{{ envelope.id }}/approve" method="post"
+                  hx-post="/approvals/{{ envelope.id }}/approve"
+                  hx-target="#envelope-{{ envelope.id }}"
+                  hx-swap="outerHTML"
+                  hx-confirm="Approve this action: {{ envelope.rationale }}">
+                {{ csrf|safe }}
+                <button type="submit" class="btn btn-sm btn-success">Approve</button>
+            </form>
+            <form action="/approvals/{{ envelope.id }}/reject" method="post"
+                  hx-post="/approvals/{{ envelope.id }}/reject"
+                  hx-target="#envelope-{{ envelope.id }}"
+                  hx-swap="outerHTML"
+                  hx-confirm="Reject this action: {{ envelope.rationale }}">
+                {{ csrf|safe }}
+                <button type="submit" class="btn btn-sm btn-danger">Reject</button>
+            </form>
+            <span class="expand-icon">&#9660;</span>
+        </div>
+    </div>
+    <div class="approval-row-details">
+        <div class="card-header" style="border-bottom:none;padding:0 0 8px 0;margin-bottom:8px;">
+            Blast Radius
+        </div>
+        <div class="blast-radius-display">
+            <div class="blast-stat">
+                <div class="blast-value">{{ envelope.blast.entities }}</div>
+                <div class="blast-label">Entities</div>
+            </div>
+            <div class="blast-stat {% if envelope.blast.external_sends > 0 %}blast-danger{% endif %}">
+                <div class="blast-value">{{ envelope.blast.external_sends }}</div>
+                <div class="blast-label">External Sends</div>
+            </div>
+            <div class="blast-stat {% if envelope.blast.money_cents >= 100000 %}blast-danger{% endif %}">
+                <div class="blast-value">{{ envelope.blast.money_cents }}&cent;</div>
+                <div class="blast-label">Money at Risk</div>
+            </div>
+            <div class="blast-stat {% if envelope.blast.pii_egress %}blast-danger{% endif %}">
+                <div class="blast-value">{% if envelope.blast.pii_egress %}YES{% else %}no{% endif %}</div>
+                <div class="blast-label">PII Egress</div>
+            </div>
+        </div>
+
+        <div class="card-header" style="border-bottom:none;padding:0 0 8px 0;margin-bottom:8px;">
+            Reversal
+        </div>
+        <div style="font-size:14px;">
+            {% match envelope.reversal %}
+            {% when Reversal::Compensating %}
+            <span class="chip chip-approved">Compensating</span> &mdash; A compensating action can undo this
+            {% when Reversal::Snapshot %}
+            <span class="chip chip-active">Snapshot</span> &mdash; A point-in-time restore can undo this
+            {% when Reversal::Irreversible %}
+            <span class="chip chip-failed">Irreversible</span> &mdash; This action cannot be undone
+            {% endmatch %}
+        </div>
+
+        <div class="card-header" style="border-bottom:none;padding:12px 0 8px 0;margin-bottom:8px;">
+            Targets ({{ envelope.targets.len() }})
+        </div>
+        <div style="font-size:13px;font-family:monospace;word-break:break-all;">
+            {% for target in envelope.targets %}
+            <span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 6px;background:var(--content-bg);border-radius:4px;">{{ target }}</span>
+            {% endfor %}
+        </div>
+
+        {% if envelope.history.len() > 0 %}
+        <div class="card-header" style="border-bottom:none;padding:12px 0 8px 0;margin-bottom:8px;">
+            History
+        </div>
+        <ul class="activity-stream">
+            {% for transition in envelope.history %}
+            <li>
+                <span class="chip {{ envelope.state_css }}-history">{{ transition.from }}</span>
+                &rarr;
+                <span class="chip {{ envelope.state_css }}">{{ transition.to }}</span>
+                by <span class="event-actor">{{ transition.actor }}</span>
+                <span class="event-ts">{{ transition.at_rfc3339 }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</div>

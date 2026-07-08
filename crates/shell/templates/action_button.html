@@ -1,0 +1,20 @@
+{% if let Some(state) = result_state %}
+<div class="state-chip-inline">
+    <span class="chip chip-{{ state.css_class }}">{{ state.label }}</span>
+    <span class="text-muted text-small">{{ state.message }}</span>
+</div>
+{% else %}
+<form action="{{ action_url }}" method="post"
+      hx-post="{{ action_url }}"
+      hx-target="closest form"
+      hx-swap="outerHTML">
+    {{ csrf|safe }}
+    <input type="hidden" name="action" value="{{ action_name }}">
+    <button type="submit" class="btn btn-sm btn-outline"
+            hx-confirm="{{ confirm_text }}"
+            hx-indicator="#spinner-{{ entity_id }}">
+        <span class="htmx-indicator spinner" id="spinner-{{ entity_id }}"></span>
+        {{ button_label }}
+    </button>
+</form>
+{% endif %}

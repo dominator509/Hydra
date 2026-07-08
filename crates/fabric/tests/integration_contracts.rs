@@ -5,8 +5,9 @@ use fabric::app;
 use fabric::mcp;
 use fabric::services::{
     demo_governor, AppState, AutonomyCellDto, BlastRadiusDto, BridgeGrantDto,
-    BridgeRegisterRequest, BridgeStatusDto, EnvelopeCreateRequest, StoreAutonomyService,
-    StoreBridgeService, StoreEntityService, StoreEnvelopeService, StoreTkStatsService,
+    BridgeRegisterRequest, BridgeStatusDto, ConciergePingResponse, ConciergeServiceImpl,
+    EnvelopeCreateRequest, StoreAutonomyService, StoreBridgeService, StoreEntityService,
+    StoreEnvelopeService, StoreTkStatsService,
 };
 use serde_json::json;
 use sqlx::types::Json;
@@ -48,6 +49,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
                 store.ledger.clone(),
                 vec!["concierge".into()],
             )),
+            Arc::new(ConciergeServiceImpl),
         );
         let addr = spawn_app(app(state)).await?;
         let client = reqwest::Client::new();
@@ -62,6 +64,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
             .await?;
         assert_eq!(openapi["info"]["version"], "1.0.0");
         assert!(openapi["paths"]["/v1/autonomy/cells"].is_object());
+        assert!(openapi["paths"]["/v1/concierge/ping"].is_object());
         assert!(openapi["paths"]["/v1/bridges"].is_object());
         assert!(openapi["paths"]["/v1/bridges/{id}/status"].is_object());
         assert!(openapi["paths"]["/v1/bridges/{id}/pause"].is_object());
@@ -70,6 +73,20 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
         assert!(openapi["paths"]["/v1/entities/{kind}/{id}"].is_object());
         assert!(openapi["paths"]["/v1/envelopes"].is_object());
         assert!(openapi["paths"]["/v1/tk/ledger"].is_object());
+
+        let ping = client
+            .post(format!("http://{addr}/v1/concierge/ping"))
+            .header("x-hydra-tenant", &tenant_header)
+            .json(&serde_json::json!({"question": "hello world"}))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<ConciergePingResponse>()
+            .await?;
+        assert_eq!(ping.route, "concierge");
+        assert_eq!(ping.provider, "test");
+        assert!(ping.answer.contains("hello world"), "answer should echo the question: {}", ping.answer);
+        assert!(ping.tokens_used > 0);
 
         let empty_cells = client
             .get(format!("http://{addr}/v1/autonomy/cells"))

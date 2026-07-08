@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <script src="/static/htmx.min.js"></script>
+    <style>
+        :root {
+            --sidebar-bg: #1a1a2e;
+            --sidebar-text: #e0e0e0;
+            --sidebar-active: #16213e;
+            --sidebar-hover: #0f3460;
+            --sidebar-width: 200px;
+            --content-bg: #f8f9fa;
+            --card-bg: #ffffff;
+            --text-primary: #212529;
+            --text-secondary: #6c757d;
+            --border-color: #dee2e6;
+            --accent: #4361ee;
+            --accent-hover: #3a56d4;
+            --success: #2ecc71;
+            --info: #3498db;
+            --warning: #f39c12;
+            --error: #e74c3c;
+            --chip-active: #27ae60;
+            --chip-queued: #f0ad4e;
+            --chip-pending: #f0ad4e;
+            --chip-failed: #e74c3c;
+            --chip-blocked: #e74c3c;
+            --chip-inactive: #95a5a6;
+            --max-width: 1400px;
+            --radius: 6px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.12);
+            --shadow-lg: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-size: 15px;
+            line-height: 1.5;
+            color: var(--text-primary);
+            background: var(--content-bg);
+            min-height: 100vh;
+        }
+
+        a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        a:focus-visible,
+        button:focus-visible,
+        input:focus-visible,
+        select:focus-visible,
+        textarea:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        .app-layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            flex-shrink: 0;
+            background: var(--sidebar-bg);
+            color: var(--sidebar-text);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            z-index: 100;
+        }
+
+        .sidebar-header {
+            padding: 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .sidebar-header h1 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            color: #ffffff;
+        }
+
+        .sidebar-header .tenant-label {
+            font-size: 11px;
+            color: var(--sidebar-text);
+            opacity: 0.6;
+            margin-top: 2px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            padding: 8px 0;
+            overflow-y: auto;
+        }
+
+        .sidebar-nav a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            color: var(--sidebar-text);
+            font-size: 14px;
+            transition: background 0.15s;
+            text-decoration: none;
+            border-left: 3px solid transparent;
+        }
+
+        .sidebar-nav a:hover {
+            background: var(--sidebar-hover);
+            text-decoration: none;
+        }
+
+        .sidebar-nav a.active {
+            background: var(--sidebar-active);
+            border-left-color: var(--accent);
+            color: #ffffff;
+            font-weight: 600;
+        }
+
+        .sidebar-nav .nav-icon {
+            width: 18px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .sidebar-nav .nav-text {
+            flex: 1;
+        }
+
+        .sidebar-nav .nav-badge {
+            background: var(--error);
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 1px 6px;
+            border-radius: 10px;
+            min-width: 18px;
+            text-align: center;
+        }
+
+        .sidebar-footer {
+            padding: 12px 16px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .sidebar-footer a {
+            color: var(--sidebar-text);
+            font-size: 13px;
+            display: block;
+            padding: 6px 0;
+            opacity: 0.7;
+        }
+
+        .sidebar-footer a:hover {
+            opacity: 1;
+            text-decoration: none;
+        }
+
+        /* Main Content */
+        .main-wrapper {
+            margin-left: var(--sidebar-width);
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 24px;
+            max-width: var(--max-width);
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        /* Header area */
+        .page-header {
+            margin-bottom: 24px;
+        }
+
+        .page-header h2 {
+            margin: 0 0 4px 0;
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .page-header .subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* Flash messages */
+        .flash-area {
+            margin-bottom: 20px;
+        }
+
+        .flash-message {
+            padding: 12px 16px;
+            border-radius: var(--radius);
+            margin-bottom: 8px;
+            font-size: 14px;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            animation: flashIn 0.25s ease;
+        }
+
+        @keyframes flashIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .flash-message .flash-text {
+            flex: 1;
+        }
+
+        .flash-message .flash-dismiss {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 0 4px;
+            opacity: 0.6;
+            color: inherit;
+        }
+
+        .flash-message .flash-dismiss:hover {
+            opacity: 1;
+        }
+
+        .flash-message .flash-code {
+            display: block;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 12px;
+            margin-top: 4px;
+            opacity: 0.8;
+        }
+
+        .flash-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .flash-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .flash-warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+
+        .flash-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 20px;
+        }
+
+        .card + .card {
+            margin-top: 16px;
+        }
+
+        .card-header {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            border-radius: var(--radius);
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition: background 0.15s, box-shadow 0.15s;
+            line-height: 1.4;
+            font-family: inherit;
+        }
+
+        .btn:hover {
+            text-decoration: none;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #ffffff;
+            border-color: var(--accent);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--accent-hover);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: #ffffff;
+            border-color: var(--success);
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #27ae60;
+        }
+
+        .btn-danger {
+            background: var(--error);
+            color: #ffffff;
+            border-color: var(--error);
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #c0392b;
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: var(--text-primary);
+            border-color: var(--border-color);
+        }
+
+        .btn-outline:hover:not(:disabled) {
+            background: #e9ecef;
+        }
+
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 12px;
+        }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: var(--text-secondary);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 8px 12px;
+            font-size: 14px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            font-family: inherit;
+            transition: border-color 0.15s;
+            background: var(--card-bg);
+        }
+
+        .form-input:focus {
+            border-color: var(--accent);
+        }
+
+        .form-select {
+            width: 100%;
+            padding: 8px 12px;
+            font-size: 14px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            font-family: inherit;
+            background: var(--card-bg);
+            cursor: pointer;
+        }
+
+        /* State chips */
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .chip-active, .chip-executed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .chip-queued, .chip-pending, .chip-pendingapproval, .chip-proposed {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .chip-failed, .chip-blocked, .chip-error, .chip-rejected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .chip-inactive, .chip-rolledback {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+
+        .chip-approving, .chip-executing {
+            background: #cce5ff;
+            color: #004085;
+        }
+
+        .chip-approved {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        /* Tables */
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .table th,
+        .table td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .table th {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .table tr:hover td {
+            background: #f1f3f5;
+        }
+
+        /* Grids */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+        }
+
+        .grid-4 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 16px;
+        }
+
+        /* Loading indicator */
+        .htmx-indicator {
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .htmx-request .htmx-indicator {
+            opacity: 1;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Utility */
+        .text-muted { color: var(--text-secondary); }
+        .text-small { font-size: 13px; }
+        .mt-1 { margin-top: 8px; }
+        .mt-2 { margin-top: 16px; }
+        .mt-3 { margin-top: 24px; }
+        .mb-1 { margin-bottom: 8px; }
+        .mb-2 { margin-bottom: 16px; }
+        .flex { display: flex; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .flex-center { display: flex; align-items: center; gap: 8px; }
+        .gap-1 { gap: 8px; }
+        .gap-2 { gap: 16px; }
+
+        /* Footer */
+        .app-footer {
+            padding: 12px 24px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 56px;
+            }
+            .sidebar-header h1,
+            .sidebar-header .tenant-label,
+            .sidebar-nav .nav-text {
+                display: none;
+            }
+            .sidebar-nav .nav-badge {
+                position: absolute;
+                top: 2px;
+                right: 2px;
+                font-size: 9px;
+                min-width: 14px;
+                padding: 0 4px;
+            }
+            .sidebar-nav a {
+                padding: 12px;
+                justify-content: center;
+            }
+            .main-wrapper {
+                margin-left: 56px;
+            }
+            .main-content {
+                padding: 16px;
+            }
+            .grid-2, .grid-3, .grid-4 {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="app-layout">
+        <aside class="sidebar" role="navigation" aria-label="Main navigation">
+            <div class="sidebar-header">
+                <h1>HYDRA</h1>
+                <div class="tenant-label">{{ tenant }}</div>
+            </div>
+            {% include "nav.html" %}
+        </aside>
+
+        <div class="main-wrapper">
+            <main id="main-content" class="main-content">
+                {% if flash.len() > 0 %}
+                <div class="flash-area" id="flash-area">
+                    {% include "components/flash.html" %}
+                </div>
+                {% endif %}
+
+                {% block content %}{% endblock %}
+            </main>
+
+            <footer class="app-footer" role="contentinfo">
+                Hydra Shell &middot; Token-Killer Architecture
+            </footer>
+        </div>
+    </div>
+
+    <script>
+        // Auto-dismiss flash messages after 5 seconds
+        document.addEventListener('DOMContentLoaded', function() {
+            var flashMessages = document.querySelectorAll('.flash-message');
+            flashMessages.forEach(function(msg) {
+                setTimeout(function() {
+                    msg.style.transition = 'opacity 0.3s';
+                    msg.style.opacity = '0';
+                    setTimeout(function() { msg.remove(); }, 300);
+                }, 5000);
+            });
+        });
+
+        // Handle htmx swapped content flash messages
+        document.body.addEventListener('htmx:afterSwap', function(evt) {
+            var newFlashes = evt.detail.elt.querySelectorAll('.flash-message');
+            newFlashes.forEach(function(msg) {
+                setTimeout(function() {
+                    msg.style.transition = 'opacity 0.3s';
+                    msg.style.opacity = '0';
+                    setTimeout(function() { msg.remove(); }, 300);
+                }, 5000);
+            });
+        });
+    </script>
+</body>
+</html>

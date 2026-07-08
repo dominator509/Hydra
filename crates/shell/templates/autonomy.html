@@ -1,0 +1,323 @@
+{% extends "layout.html" %}
+
+{% block head %}
+<style>
+    .matrix-wrapper {
+        overflow-x: auto;
+    }
+
+    .matrix-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        min-width: 600px;
+    }
+
+    .matrix-table th,
+    .matrix-table td {
+        padding: 8px 10px;
+        text-align: center;
+        border: 1px solid var(--border-color);
+    }
+
+    .matrix-table th {
+        background: var(--sidebar-bg);
+        color: var(--sidebar-text);
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+    }
+
+    .matrix-table th:first-child {
+        text-align: left;
+        background: var(--sidebar-bg);
+    }
+
+    .matrix-table td:first-child {
+        text-align: left;
+        font-weight: 600;
+        background: var(--content-bg);
+        white-space: nowrap;
+    }
+
+    .matrix-table td {
+        transition: background 0.15s;
+    }
+
+    .matrix-table td:hover {
+        background: #e9ecef;
+    }
+
+    .matrix-table .cell-select {
+        width: 100%;
+        padding: 4px 6px;
+        font-size: 12px;
+        font-weight: 600;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--card-bg);
+        text-align: center;
+        font-family: inherit;
+        cursor: pointer;
+    }
+
+    .cell-select.l0 { border-color: #e74c3c; color: #e74c3c; }
+    .cell-select.l1 { border-color: #e67e22; color: #e67e22; }
+    .cell-select.l2 { border-color: #f39c12; color: #f39c12; }
+    .cell-select.l3 { border-color: #2ecc71; color: #27ae60; }
+    .cell-select.l4 { border-color: #3498db; color: #2980b9; }
+    .cell-select.l5 { border-color: #9b59b6; color: #8e44ad; }
+
+    .cell-shield {
+        display: inline-block;
+        font-size: 14px;
+        margin-left: 4px;
+        cursor: help;
+    }
+
+    .cell-kind-override {
+        font-size: 11px;
+        color: var(--text-secondary);
+        margin-top: 2px;
+    }
+
+    .kind-drawer-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.4);
+        z-index: 200;
+    }
+
+    .kind-drawer-overlay.active {
+        display: block;
+    }
+
+    .kind-drawer {
+        display: none;
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 360px;
+        max-width: 90vw;
+        background: var(--card-bg);
+        box-shadow: -4px 0 20px rgba(0,0,0,0.15);
+        z-index: 201;
+        padding: 24px;
+        overflow-y: auto;
+    }
+
+    .kind-drawer.active {
+        display: block;
+    }
+
+    .kind-drawer h3 {
+        margin: 0 0 20px 0;
+        font-size: 18px;
+    }
+
+    .kind-drawer .drawer-close {
+        float: right;
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: var(--text-secondary);
+        padding: 0;
+        line-height: 1;
+    }
+
+    .kind-drawer .drawer-close:hover {
+        color: var(--text-primary);
+    }
+
+    .kind-override-row {
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border-color);
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .kind-override-row:last-child {
+        border-bottom: none;
+    }
+
+    .kind-override-row .kind-name {
+        flex: 1;
+        font-size: 13px;
+        font-weight: 500;
+    }
+
+    .kind-override-row select {
+        font-size: 12px;
+        padding: 3px 6px;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        font-family: inherit;
+    }
+
+    .matrix-save-bar {
+        margin-top: 20px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+
+    .level-legend {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+        font-size: 12px;
+    }
+
+    .level-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .level-legend-item .legend-swatch {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+    }
+
+    .level-legend-item.l0 .legend-swatch { background: #e74c3c; }
+    .level-legend-item.l1 .legend-swatch { background: #e67e22; }
+    .level-legend-item.l2 .legend-swatch { background: #f39c12; }
+    .level-legend-item.l3 .legend-swatch { background: #2ecc71; }
+    .level-legend-item.l4 .legend-swatch { background: #3498db; }
+    .level-legend-item.l5 .legend-swatch { background: #9b59b6; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header flex-between">
+    <div>
+        <h2>Autonomy Matrix</h2>
+        <p class="subtitle">Configure autonomy levels per domain/action pair &middot; L0 (blocked) through L5 (full autonomy)</p>
+    </div>
+</div>
+
+<div class="level-legend">
+    <span class="level-legend-item l0"><span class="legend-swatch"></span> L0 &mdash; Blocked</span>
+    <span class="level-legend-item l1"><span class="legend-swatch"></span> L1 &mdash; Suggest Only</span>
+    <span class="level-legend-item l2"><span class="legend-swatch"></span> L2 &mdash; Queue Approval</span>
+    <span class="level-legend-item l3"><span class="legend-swatch"></span> L3 &mdash; Auto-Execute (capped)</span>
+    <span class="level-legend-item l4"><span class="legend-swatch"></span> L4 &mdash; Shielded Auto-Execute</span>
+    <span class="level-legend-item l5"><span class="legend-swatch"></span> L5 &mdash; Full Autonomy</span>
+</div>
+
+<form action="/autonomy/save" method="post"
+      hx-post="/autonomy/save"
+      hx-target="#save-result"
+      hx-swap="innerHTML">
+    {{ csrf|safe }}
+
+    <div class="card">
+        <div class="matrix-wrapper">
+            <table class="matrix-table">
+                <thead>
+                    <tr>
+                        <th>Domain \ Action</th>
+                        {% for action in actions %}
+                        <th>{{ action }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in matrix_rows %}
+                    <tr>
+                        <td>{{ row.domain }}</td>
+                        {% for col in row.columns %}
+                        <td>
+                            {% if col.has_cell %}
+                            <div>
+                                <select name="cell_{{ row.domain }}_{{ col.action }}" class="cell-select {{ col.level_lower }}"
+                                        onchange="this.className='cell-select '+this.value.toLowerCase()">
+                                    <option value="L0" {% if col.level == "L0" %}selected{% endif %}>L0</option>
+                                    <option value="L1" {% if col.level == "L1" %}selected{% endif %}>L1</option>
+                                    <option value="L2" {% if col.level == "L2" %}selected{% endif %}>L2</option>
+                                    <option value="L3" {% if col.level == "L3" %}selected{% endif %}>L3</option>
+                                    <option value="L4" {% if col.level == "L4" %}selected{% endif %}>L4</option>
+                                    <option value="L5" {% if col.level == "L5" %}selected{% endif %}>L5</option>
+                                </select>
+                                {% if col.level == "L4" || col.level == "L5" %}
+                                <span class="cell-shield" title="Shielded operation">&#9971;</span>
+                                {% endif %}
+                            </div>
+                            {% if let Some(kind) = col.kind %}
+                            <div class="cell-kind-override">Kind: {{ kind }}</div>
+                            {% endif %}
+                            {% else %}
+                            <span class="text-muted" style="font-size:11px;">&mdash;</span>
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="matrix-save-bar">
+            <span id="save-result"></span>
+            <button type="button" class="btn btn-outline"
+                    onclick="document.getElementById('kind-drawer').classList.add('active');document.getElementById('kind-overlay').classList.add('active');">
+                Kind Overrides
+            </button>
+            <button type="submit" class="btn btn-primary">Save Matrix</button>
+        </div>
+    </div>
+</form>
+
+<!-- Kind Override Drawer -->
+<div class="kind-drawer-overlay" id="kind-overlay"
+     onclick="document.getElementById('kind-drawer').classList.remove('active');this.classList.remove('active');">
+</div>
+<div class="kind-drawer" id="kind-drawer">
+    <button class="drawer-close"
+            onclick="document.getElementById('kind-drawer').classList.remove('active');document.getElementById('kind-overlay').classList.remove('active');">&times;</button>
+    <h3>Kind Overrides</h3>
+    <p class="text-muted text-small mb-2">
+        Restrict autonomy to a specific entity kind within a domain/action pair.
+    </p>
+
+    <form action="/autonomy/save-kinds" method="post"
+          hx-post="/autonomy/save-kinds"
+          hx-target="#save-result"
+          hx-swap="innerHTML">
+        {{ csrf|safe }}
+
+        {% for row in matrix_rows %}
+        {% for col in row.columns %}
+        {% if col.has_cell %}
+        <div class="kind-override-row">
+            <div class="kind-name">{{ row.domain }} / {{ col.action }}</div>
+            <select name="kind_{{ row.domain }}_{{ col.action }}">
+                <option value="">No override</option>
+                <option value="deal" {% if let Some(kind) = col.kind %}{% if kind == "deal" %}selected{% endif %}{% endif %}>Deal</option>
+                <option value="party" {% if let Some(kind) = col.kind %}{% if kind == "party" %}selected{% endif %}{% endif %}>Party</option>
+                <option value="lead" {% if let Some(kind) = col.kind %}{% if kind == "lead" %}selected{% endif %}{% endif %}>Lead</option>
+                <option value="opportunity" {% if let Some(kind) = col.kind %}{% if kind == "opportunity" %}selected{% endif %}{% endif %}>Opportunity</option>
+                <option value="task" {% if let Some(kind) = col.kind %}{% if kind == "task" %}selected{% endif %}{% endif %}>Task</option>
+            </select>
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% endfor %}
+
+        <div style="margin-top:16px;">
+            <button type="submit" class="btn btn-primary">Save Overrides</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

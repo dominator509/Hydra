@@ -4,21 +4,22 @@ mod config;
 mod relay;
 
 use std::process::ExitCode;
+use std::sync::Arc;
 
 use async_nats::Client as NatsClient;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::get, Router};
+use axum::{
+    extract::Extension,
+    http::{header, StatusCode},
+    response::IntoResponse,
+    routing::get,
+    Router,
+};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
 use crate::config::{Config, ConfigError};
-
-#[derive(Clone)]
-struct AppState {
-    pool: PgPool,
-    nats: NatsClient,
-}
 
 #[derive(Debug, thiserror::Error)]
 enum KernelError {
@@ -73,14 +74,72 @@ async fn run() -> Result<(), KernelError> {
     let pool = connect_pool(&config).await?;
     let nats = connect_nats(&config).await?;
 
-    let state = AppState {
-        pool: pool.clone(),
-        nats: nats.clone(),
-    };
-    let app = Router::new()
+    // Build fabric service layer.
+    let store = store::Store::new(pool.clone());
+
+    // Governor does not implement Clone; create two separate instances.
+    let entity_service: Arc<dyn fabric::EntityService> =
+        Arc::new(fabric::StoreEntityService::new(store.clone()));
+    let envelope_service: Arc<dyn fabric::EnvelopeService> =
+        Arc::new(fabric::StoreEnvelopeService::new(
+            store.clone(),
+            fabric::services::demo_governor(),
+        ));
+    let autonomy_service: Arc<dyn fabric::AutonomyService> =
+        Arc::new(fabric::StoreAutonomyService::new(store.clone()));
+    let bridge_service: Arc<dyn fabric::BridgeService> =
+        Arc::new(fabric::StoreBridgeService::new(
+            store.clone(),
+            fabric::services::demo_governor(),
+        ));
+    let tk_stats_service: Arc<dyn fabric::TkStatsService> =
+        Arc::new(fabric::StoreTkStatsService::new(
+            store.ledger.clone(),
+            vec!["concierge".into()],
+        ));
+    let concierge_service: Arc<dyn fabric::ConciergeService> =
+        Arc::new(fabric::ConciergeServiceImpl);
+
+    let fabric_state = fabric::AppState::new(
+        entity_service,
+        autonomy_service,
+        bridge_service,
+        envelope_service,
+        tk_stats_service,
+        concierge_service,
+    );
+
+    // Kernel health-check routes (use Extension for pool/nats).
+    let kernel_router = Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
-        .with_state(state);
+        .layer(Extension(pool.clone()))
+        .layer(Extension(nats.clone()));
+
+    // Fabric REST + MCP router (its .with_state is called inside rest::router).
+    let fabric_router = fabric::app(fabric_state.clone());
+
+    // Shell server-rendered UI router.
+    let shell_router = shell::router(fabric_state);
+
+    // Static assets (vendored htmx).
+    let static_router = Router::new().route(
+        "/static/htmx.min.js",
+        get(|| async {
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/javascript")],
+                include_str!("../../shell/static/htmx.min.js"),
+            )
+        }),
+    );
+
+    // Merge all routers — each has already resolved its state to ().
+    let app = Router::new()
+        .merge(kernel_router)
+        .merge(fabric_router)
+        .merge(shell_router)
+        .merge(static_router);
 
     let listener = tokio::net::TcpListener::bind(config.bind)
         .await
@@ -149,16 +208,19 @@ async fn healthz() -> &'static str {
     "ok"
 }
 
-async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
+async fn readyz(
+    Extension(pool): Extension<PgPool>,
+    Extension(nats): Extension<NatsClient>,
+) -> impl IntoResponse {
     if let Err(error) = sqlx::query!("SELECT 1 as \"one!\"")
-        .fetch_one(&state.pool)
+        .fetch_one(&pool)
         .await
     {
         warn!(error = %error, "readyz postgres check failed");
         return (StatusCode::SERVICE_UNAVAILABLE, "postgres");
     }
 
-    if let Err(error) = state.nats.flush().await {
+    if let Err(error) = nats.flush().await {
         warn!(error = %error, "readyz nats check failed");
         return (StatusCode::SERVICE_UNAVAILABLE, "nats");
     }

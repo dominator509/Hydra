@@ -1,0 +1,11 @@
+{% for msg in flash %}
+<div class="flash-message {{ msg.css_class() }}" role="alert">
+    <span class="flash-text">
+        {{ msg.text }}
+        {% if let Some(code) = msg.code %}
+        <span class="flash-code">{{ code }}</span>
+        {% endif %}
+    </span>
+    <button class="flash-dismiss" onclick="this.parentElement.remove()" aria-label="Dismiss">&times;</button>
+</div>
+{% endfor %}

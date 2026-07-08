@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM autonomy_cell\n            WHERE tenant_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a7473bdc70ebd06ffce3715043a1f066acfde3f541881312eca17a5e415c3a3b"
+}

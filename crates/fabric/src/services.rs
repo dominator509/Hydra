@@ -1,5 +1,6 @@
+use std::collections::HashMap;
 use std::env;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use axum::http::{header::AUTHORIZATION, HeaderMap};
@@ -11,6 +12,11 @@ use governor::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use time::OffsetDateTime;
+use tokenkiller::{
+    ApproxTokenizer, CacheUsage, CompletionRequest, CompletionResponse, Contract, LedgerRow,
+    LedgerSink, ProviderTag, RouteCfg, Router as TkRouter, RouterError, Segment, Session,
+    Stability,
+};
 use uuid::Uuid;
 
 use crate::error::FabricError;
@@ -22,6 +28,7 @@ pub struct AppState {
     pub bridges: Arc<dyn BridgeService>,
     pub envelopes: Arc<dyn EnvelopeService>,
     pub tk_stats: Arc<dyn TkStatsService>,
+    pub concierge: Arc<dyn ConciergeService>,
 }
 
 impl AppState {
@@ -31,6 +38,7 @@ impl AppState {
         bridges: Arc<dyn BridgeService>,
         envelopes: Arc<dyn EnvelopeService>,
         tk_stats: Arc<dyn TkStatsService>,
+        concierge: Arc<dyn ConciergeService>,
     ) -> Self {
         Self {
             entities,
@@ -38,6 +46,7 @@ impl AppState {
             bridges,
             envelopes,
             tk_stats,
+            concierge,
         }
     }
 }
@@ -652,6 +661,103 @@ impl TkStatsService for StoreTkStatsService {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConciergePingResponse {
+    pub answer: String,
+    pub route: String,
+    pub provider: String,
+    pub tokens_used: u32,
+}
+
+#[async_trait]
+pub trait ConciergeService: Send + Sync {
+    async fn ping(&self, tenant: Uuid, question: &str) -> Result<ConciergePingResponse, FabricError>;
+}
+
+pub struct ConciergeServiceImpl;
+
+#[async_trait]
+impl ConciergeService for ConciergeServiceImpl {
+    async fn ping(&self, tenant: Uuid, question: &str) -> Result<ConciergePingResponse, FabricError> {
+        let mut routes = HashMap::new();
+        routes.insert(
+            "concierge".into(),
+            RouteCfg {
+                provider: "test".into(),
+                provider_tags: vec![ProviderTag::Private],
+                max_tokens: 256,
+                output_budget_bytes: 4096,
+                contract: Contract::PlainAnswer,
+                pii: false,
+            },
+        );
+
+        let segments = vec![Segment {
+            stability: Stability::S0,
+            text: "You are HYDRA concierge ping service.".into(),
+            version: 1,
+        }];
+
+        let session = Session::new(
+            tenant,
+            routes,
+            Box::new(PingRouter),
+            Box::new(MemoryLedger::default()),
+            Box::new(ApproxTokenizer),
+            Box::new(tokenkiller::SystemClock),
+        );
+
+        let contracted = session
+            .complete("concierge", segments, question.to_owned())
+            .await
+            .map_err(|error| {
+                FabricError::LlmProviderError(format!("concierge tk error: {error}"))
+            })?;
+
+        Ok(ConciergePingResponse {
+            answer: contracted.raw,
+            route: "concierge".into(),
+            provider: contracted.ledger_row.provider,
+            tokens_used: contracted.ledger_row.out_tokens as u32,
+        })
+    }
+}
+
+struct PingRouter;
+
+#[async_trait]
+impl TkRouter for PingRouter {
+    async fn complete(
+        &self,
+        request: CompletionRequest,
+    ) -> Result<CompletionResponse, RouterError> {
+        let tail = request.prompt.tail_bytes;
+        Ok(CompletionResponse {
+            provider: "test".into(),
+            chunks: vec![format!("Pong: {tail}")],
+            usage: CacheUsage::default(),
+            out_tokens: 7,
+            cost_cents: 0,
+        })
+    }
+}
+
+#[derive(Default)]
+struct MemoryLedger {
+    rows: Mutex<Vec<LedgerRow>>,
+}
+
+#[async_trait]
+impl LedgerSink for MemoryLedger {
+    async fn record(&self, row: &LedgerRow) -> Result<(), tokenkiller::LedgerError> {
+        self.rows
+            .lock()
+            .expect("memory ledger lock should not be poisoned")
+            .push(row.clone());
+        Ok(())
+    }
+}
+
 pub fn tenant_from_headers(headers: &HeaderMap) -> Result<Uuid, FabricError> {
     let raw = headers
         .get("x-hydra-tenant")
@@ -960,5 +1066,46 @@ pub fn demo_governor() -> Governor {
             blast_sends_ceiling: 50,
             blast_money_ceiling_cents: 250_000,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn concierge_ping_exercises_tk_path() -> Result<(), FabricError> {
+        let service = ConciergeServiceImpl;
+        let tenant = Uuid::new_v4();
+        let question = "what is the status of deal 42?";
+
+        let response = service.ping(tenant, question).await?;
+
+        assert_eq!(response.route, "concierge");
+        assert_eq!(response.provider, "test");
+        assert!(
+            response.answer.contains("deal 42"),
+            "answer should echo the question; got: {}",
+            response.answer
+        );
+        assert!(
+            response.tokens_used > 0,
+            "tokens_used should report positive output tokens"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concierge_ping_contract_plain_answer_no_fences() -> Result<(), FabricError> {
+        let service = ConciergeServiceImpl;
+        let tenant = Uuid::new_v4();
+
+        let response = service.ping(tenant, "code fence test").await?;
+
+        // PlainAnswer contract rejects code fences — our fake router doesn't emit them
+        assert!(!response.answer.contains("```"));
+        assert!(!response.answer.contains("```"));
+        assert_eq!(response.provider, "test");
+        Ok(())
     }
 }

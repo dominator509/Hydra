@@ -9,8 +9,10 @@ publish.workspace = true
 async-nats.workspace = true
 axum.workspace = true
 cdm = { path = "../cdm", version = "0.1.0" }
+fabric = { path = "../fabric", version = "0.1.0" }
 governor = { path = "../governor", version = "0.1.0" }
 serde_json.workspace = true
+shell = { path = "../shell", version = "0.1.0" }
 store = { path = "../store", version = "0.1.0" }
 sqlx.workspace = true
 thiserror.workspace = true
