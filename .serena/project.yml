@@ -70,8 +70,8 @@ ignored_paths:
 - .serena/cache/**
 - .serena/logs/**
 - .serena/memories/**
-- **/*.profraw
-- **/*.profdata
+- "**/*.profraw"
+- "**/*.profdata"
 - .tmp/**
 
 # whether the project is in read-only mode
