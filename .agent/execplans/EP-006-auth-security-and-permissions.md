@@ -38,7 +38,7 @@ security-check ok; integration ok; e2e still ok (login path changed — update e
 Migration additive; vault ops idempotent (set overwrites with backup file rotation).
 
 ## 12. Progress
-- [ ] M1 - [ ] M2 - [ ] M3 - [ ] M4 - [ ] M5
+- [x] M1 - [x] M2 - [x] M3 - [ ] M4 - [ ] M5
 
 ## 13. Surprises & Discoveries
 ## 14. Decision Log

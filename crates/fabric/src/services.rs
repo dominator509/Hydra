@@ -20,6 +20,7 @@ use tokenkiller::{
 use uuid::Uuid;
 
 use crate::auth::{AuthCtx, Role, SessionStore};
+use crate::auth::jwt::{TokenClaims, TokenScope, TokenService};
 use crate::error::FabricError;
 
 #[derive(Clone)]
@@ -846,6 +847,8 @@ pub fn auth_ctx_from_headers(headers: &HeaderMap) -> AuthCtx {
 }
 
 /// Build a dev-mode session from request headers (no SessionStore lookup).
+///
+/// Tries JWT verification for bearer tokens that aren't the dev admin token.
 fn build_dev_session(headers: &HeaderMap, tenant: Uuid, _principal: &str) -> Option<crate::auth::Session> {
     let token = extract_bearer_token(headers)?;
 
@@ -860,6 +863,11 @@ fn build_dev_session(headers: &HeaderMap, tenant: Uuid, _principal: &str) -> Opt
         });
     }
 
+    // Try JWT verification — on success build session from claims
+    if let Some(jwt_session) = build_jwt_session(token, tenant) {
+        return Some(jwt_session);
+    }
+
     // Any other Bearer token → Viewer role (authenticated, minimal access)
     Some(crate::auth::Session {
         user_id: Uuid::nil(),
@@ -868,6 +876,52 @@ fn build_dev_session(headers: &HeaderMap, tenant: Uuid, _principal: &str) -> Opt
         roles: vec![Role::Viewer],
         token: token.to_owned(),
     })
+}
+
+/// Try to verify a JWT token and build a session from its claims.
+#[allow(unused_variables)]
+fn build_jwt_session(token_str: &str, fallback_tenant: uuid::Uuid) -> Option<crate::auth::Session> {
+    let token_service = TokenService::new(b"dev-secret-key-hydra-ep-006-m4-token!".to_vec());
+    let claims = token_service.verify(token_str).ok()?;
+    let roles = claims_to_roles(&claims);
+    Some(crate::auth::Session {
+        user_id: uuid::Uuid::nil(),
+        tenant_id: claims.aud,
+        username: claims.sub.clone(),
+        roles,
+        token: token_str.into(),
+    })
+}
+
+/// Map JWT token scopes to role grants.
+///
+/// * `admin:bridges` / `admin:autonomy` → `Admin`
+/// * `approve:envelopes` → `Approver`
+/// * `write:envelopes` → `Operator`
+/// * Always includes `Viewer`.
+fn claims_to_roles(claims: &TokenClaims) -> Vec<Role> {
+    let mut roles = vec![Role::Viewer];
+    for scope in TokenScope::parse_all(&claims.scope) {
+        match scope {
+            TokenScope::AdminBridges | TokenScope::AdminAutonomy => {
+                roles.push(Role::Admin);
+            }
+            TokenScope::ApproveEnvelopes => {
+                if !roles.contains(&Role::Approver) {
+                    roles.push(Role::Approver);
+                }
+            }
+            TokenScope::WriteEnvelopes => {
+                if !roles.contains(&Role::Operator) {
+                    roles.push(Role::Operator);
+                }
+            }
+            TokenScope::ReadCdm => {
+                // Viewer already covers read access
+            }
+        }
+    }
+    roles
 }
 
 fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {

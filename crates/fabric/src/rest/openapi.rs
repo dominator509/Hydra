@@ -53,6 +53,28 @@ pub async fn openapi() -> Json<Value> {
             "/v1/concierge/ping": {
                 "post": { "summary": "Smoke-test the TK call path with a concierge ping" }
             },
+            "/oauth/token": {
+                "post": {
+                    "summary": "Issue an OAuth2 access token (client-credentials / authorization-code flow)",
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "grant_type": { "type": "string" },
+                                        "client_id": { "type": "string" },
+                                        "client_secret": { "type": "string" },
+                                        "code": { "type": "string" },
+                                        "scope": { "type": "string" }
+                                    },
+                                    "required": ["grant_type"]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "/mcp": {
                 "post": { "summary": "MCP JSON-RPC endpoint for agent tool access" }
             }

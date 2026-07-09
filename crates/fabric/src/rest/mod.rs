@@ -3,6 +3,7 @@ mod bridges;
 mod concierge;
 mod entities;
 mod envelopes;
+mod oauth;
 mod openapi;
 mod tk;
 
@@ -45,5 +46,6 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/envelopes/:id/reject", post(envelopes::reject_envelope))
         .route("/v1/tk/ledger", get(tk::ledger_window))
+        .route("/oauth/token", post(oauth::token_endpoint))
         .with_state(state)
 }
