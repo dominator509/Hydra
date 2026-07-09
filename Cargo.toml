@@ -12,6 +12,7 @@ members = [
   "crates/fabric",
   "crates/shell",
   "fixtures/adapter-memcrm",
+  "fixtures/adapter-suitelike",
 ]
 resolver = "2"
 
@@ -43,7 +44,7 @@ thiserror = { version = "1.0.64" }
 time = { version = "0.3.36", features = ["formatting"] }
 tokio = { version = "1.40.0", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = { version = "0.1.40" }
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt", "json", "registry"] }
 unicode-normalization = { version = "0.1.25" }
 uuid = { version = "1.10.0", features = ["serde", "v4"] }
 wasmtime = { version = "38.0.4", features = ["async", "component-model"] }

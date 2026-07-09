@@ -1,7 +1,9 @@
 //! layer L6 operations entrypoint and health surface placeholder for EP-003 persistence work.
 
 mod config;
+mod metrics;
 mod relay;
+mod telemetry;
 
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -47,6 +49,12 @@ enum KernelError {
 async fn main() -> ExitCode {
     init_tracing();
 
+    // Support --migrate flag for one-shot migration (used by docker migrate service)
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--migrate") {
+        return run_migrations_cli().await;
+    }
+
     match run().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(KernelError::Config(error)) => {
@@ -55,6 +63,42 @@ async fn main() -> ExitCode {
         }
         Err(error) => {
             error!("{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// Run sqlx migrations and exit. Used by the migrate one-shot container.
+async fn run_migrations_cli() -> ExitCode {
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            error!("DATABASE_URL is required for --migrate");
+            return ExitCode::from(78);
+        }
+    };
+
+    info!("running database migrations...");
+
+    let pool = match sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&database_url)
+        .await
+    {
+        Ok(pool) => pool,
+        Err(error) => {
+            error!("failed to connect to database: {error}");
+            return ExitCode::from(1);
+        }
+    };
+
+    match store::run_migrations(&pool).await {
+        Ok(()) => {
+            info!("migrations applied successfully");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            error!("migration failed: {error}");
             ExitCode::from(1)
         }
     }
@@ -107,10 +151,11 @@ async fn run() -> Result<(), KernelError> {
         concierge_service,
     );
 
-    // Kernel health-check routes (use Extension for pool/nats).
+    // Kernel health-check and metrics routes (use Extension for pool/nats).
     let kernel_router = Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
+        .route("/metrics", get(metrics::metrics_handler))
         .layer(Extension(pool.clone()))
         .layer(Extension(nats.clone()));
 
@@ -176,13 +221,7 @@ async fn run() -> Result<(), KernelError> {
 }
 
 fn init_tracing() {
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .with_target(false)
-        .compact()
-        .init();
+    telemetry::init_telemetry();
 }
 
 async fn connect_pool(config: &Config) -> Result<PgPool, KernelError> {

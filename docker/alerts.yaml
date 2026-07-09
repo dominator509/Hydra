@@ -1,0 +1,73 @@
+# EP-008: Prometheus alerting rules.
+# Scraped by the Prometheus instance defined in docker/compose.yaml (once
+# Prometheus and Grafana services are added — see EP-008 Outcomes).
+groups:
+  - name: hydra_alerts
+    rules:
+      # -- TK Cache ----------------------------------------------------------
+
+      - alert: TkCacheHitRatioWarning
+        expr: hydra_tk_cache_hit_ratio{route=~"deepseek.*"} < 0.97
+        for: 60m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TK cache hit ratio below 0.97 for deepseek routes"
+          description: >
+            The 1h rolling cache hit ratio on route {{ $labels.route }} is
+            {{ $value }}.  Investigate segment drift or transcript-rewrite
+            bugs (see OBSERVABILITY.md "cache forensics").
+
+      - alert: TkCacheHitRatioPage
+        expr: hydra_tk_cache_hit_ratio{route=~"deepseek.*"} < 0.90
+        for: 15m
+        labels:
+          severity: page
+        annotations:
+          summary: "TK cache hit ratio critically below 0.90 for deepseek routes"
+          description: >
+            Cache hit ratio on {{ $labels.route }} dropped to {{ $value }}.
+            Immediate investigation required — check segment versions and
+            recent config changes.
+
+      # -- TK Nuke ----------------------------------------------------------
+
+      - alert: TkNukeAbortsCritical
+        expr: rate(hydra_tk_nuke_aborts_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TK nuke abort rate exceeds 5/min"
+          description: >
+            Nuke aborts are occurring at {{ $value }}/min over the last 5
+            minutes.  Inspect ledger sample outputs; model may be dumping
+            payloads beyond route constraints.
+
+      # -- Cost cap ---------------------------------------------------------
+
+      - alert: CostExceededWarning
+        expr: hydra_llm_cost_cents_total{provider!=""} > on(provider) hydra_cost_cap_cents
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM provider cost exceeds cap"
+          description: >
+            Provider {{ $labels.provider }} cost ({{ $value }}¢) has exceeded
+            its monthly cap.  Router will auto-degrade to local provider if
+            >= cap.
+
+      # -- Stuck envelopes --------------------------------------------------
+
+      - alert: EnvelopeStuck
+        expr: time() - hydra_envelope_timestamp_seconds{state="PendingApproval"} > 86400
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "Envelope stuck in PendingApproval > 24h"
+          description: >
+            Envelope {{ $labels.envelope_id }} has been in PendingApproval
+            for more than 24 hours.  Check autonomy cell L2/L3 approver
+            queue.

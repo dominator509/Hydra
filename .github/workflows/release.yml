@@ -1,0 +1,85 @@
+# .github/workflows/release.yml — Hydra release pipeline
+# Triggered by any tag matching v* (e.g., v0.1.0, v1.2.3-rc1).
+#
+# Environment variables (set in GitHub secrets or org variables):
+#   REGISTRY         — Container registry URL (e.g., ghcr.io/myorg)
+#   REGISTRY_USER    — Registry username (if required)
+#   REGISTRY_PASS    — Registry password/token
+#   STAGING_HOST     — SSH hostname for staging deploy
+#   STAGING_USER     — SSH user for staging deploy
+#   STAGING_SSH_KEY  — SSH private key for staging deploy
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  verify:
+    name: Verify tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Install toolchain
+        run: bash scripts/install.sh
+      - name: Verify workspace
+        run: bash scripts/verify.sh
+
+  build-and-push:
+    name: Build and push Docker image
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: ${{ vars.REGISTRY || secrets.REGISTRY || 'ghcr.io' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to registry
+        if: env.REGISTRY != 'ghcr.io' || github.actor != 'nektos/act'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER || github.actor }}
+          password: ${{ secrets.REGISTRY_PASS || secrets.GITHUB_TOKEN }}
+      - name: Extract tag name
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/hydra/kernel:${{ steps.tag.outputs.tag }}
+            ${{ env.REGISTRY }}/hydra/kernel:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: build-and-push
+    runs-on: [self-hosted, linux, x64]
+    if: github.repository_owner == 'Dominator509'
+    env:
+      REGISTRY: ${{ vars.REGISTRY || secrets.REGISTRY || 'ghcr.io' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract tag name
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+      - name: Deploy to staging
+        run: |
+          bash scripts/deploy-staging.sh "${{ steps.tag.outputs.tag }}"
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER }}
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}

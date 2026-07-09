@@ -1,0 +1,106 @@
+{
+  "name": "Hydra Action",
+  "version": "0.1.0",
+  "description": "Send an envelope proposal to Hydra",
+  "icon": "file:hydra.svg",
+  "defaults": {
+    "name": "Hydra Action"
+  },
+  "inputs": ["main"],
+  "outputs": ["main"],
+  "properties": [
+    {
+      "displayName": "Domain",
+      "name": "domain",
+      "type": "options",
+      "options": [
+        { "name": "CRM", "value": "crm" },
+        { "name": "Support", "value": "support" },
+        { "name": "Custom", "value": "__custom__" }
+      ],
+      "default": "crm",
+      "description": "The Hydra domain to target"
+    },
+    {
+      "displayName": "Custom Domain",
+      "name": "customDomain",
+      "type": "string",
+      "default": "",
+      "displayOptions": {
+        "show": { "domain": ["__custom__"] }
+      },
+      "description": "Custom domain name"
+    },
+    {
+      "displayName": "Action",
+      "name": "action",
+      "type": "options",
+      "options": [
+        { "name": "Upsert Entity", "value": "upsert" },
+        { "name": "Delete Entity", "value": "delete" },
+        { "name": "Sync", "value": "sync" },
+        { "name": "Run Adapter", "value": "run_adapter" }
+      ],
+      "default": "upsert",
+      "description": "The action to perform"
+    },
+    {
+      "displayName": "Targets",
+      "name": "targets",
+      "type": "string",
+      "default": "",
+      "placeholder": "[\"contacts\", \"accounts\"]",
+      "description": "JSON array of target kind names (e.g., [\"contacts\", \"accounts\"])",
+      "typeName": "json"
+    },
+    {
+      "displayName": "Payload",
+      "name": "payload",
+      "type": "string",
+      "default": "",
+      "placeholder": "{\"id\": \"...\", \"data\": {...}}",
+      "description": "JSON payload for the envelope",
+      "typeName": "json"
+    },
+    {
+      "displayName": "Rationale",
+      "name": "rationale",
+      "type": "string",
+      "default": "",
+      "placeholder": "Automated sync via n8n workflow",
+      "description": "Human-readable explanation for the envelope proposal"
+    },
+    {
+      "displayName": "Hydra Base URL",
+      "name": "hydraBaseUrl",
+      "type": "string",
+      "default": "={{$env.HYDRA_BASE_URL}}",
+      "required": true,
+      "description": "Base URL of the Hydra instance (e.g., https://hydra.example.com)"
+    },
+    {
+      "displayName": "Auth Token",
+      "name": "authToken",
+      "type": "string",
+      "typeName": "password",
+      "default": "={{$env.HYDRA_AUTH_TOKEN}}",
+      "required": true,
+      "description": "Hydra API authentication token"
+    }
+  ],
+  "request": {
+    "url": "/v1/envelopes/propose",
+    "method": "POST",
+    "headers": {
+      "Authorization": "={{$credentials.authToken}}",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "domain": "={{$parameter.domain === '__custom__' ? $parameter.customDomain : $parameter.domain}}",
+      "action": "={{$parameter.action}}",
+      "targets": "={{$parameter.targets}}",
+      "payload": "={{$parameter.payload}}",
+      "rationale": "={{$parameter.rationale}}"
+    }
+  }
+}

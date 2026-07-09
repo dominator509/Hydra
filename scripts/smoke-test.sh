@@ -6,9 +6,12 @@ if [ -n "${HYDRA_SMOKE_URL:-}" ]; then
   command -v curl >/dev/null 2>&1 || { echo "smoke test ERROR: curl not found." >&2; exit 1; }
   curl -fsS "$HYDRA_SMOKE_URL/healthz" >/dev/null || { echo "smoke test ERROR: /healthz failed at $HYDRA_SMOKE_URL" >&2; exit 1; }
   curl -fsS "$HYDRA_SMOKE_URL/readyz"  >/dev/null || { echo "smoke test ERROR: /readyz failed at $HYDRA_SMOKE_URL" >&2; exit 1; }
-  if [ -d crates/tokenkiller ]; then
-    curl -fsS "$HYDRA_SMOKE_URL/metrics" | grep -q "tk_cache_hit_ratio" || { echo "smoke test ERROR: /metrics missing tk_cache_hit_ratio" >&2; exit 1; }
-  fi
+
+  # Assert /metrics contains at least 3 required Prometheus series.
+  METRICS=$(curl -fsS "$HYDRA_SMOKE_URL/metrics") || { echo "smoke test ERROR: /metrics failed at $HYDRA_SMOKE_URL" >&2; exit 1; }
+  echo "$METRICS" | grep -q "tk_cache_hit_ratio" || { echo "smoke test ERROR: /metrics missing tk_cache_hit_ratio" >&2; exit 1; }
+  echo "$METRICS" | grep -q "hydra_requests_total" || { echo "smoke test ERROR: /metrics missing hydra_requests_total" >&2; exit 1; }
+  echo "$METRICS" | grep -q "hydra_envelopes_total" || { echo "smoke test ERROR: /metrics missing hydra_envelopes_total" >&2; exit 1; }
 else
   [ -f Cargo.toml ] || { echo "smoke test ERROR: workspace not initialized. Execute EP-001 first." >&2; exit 1; }
   cargo test -p hydra-kernel --test smoke_healthz

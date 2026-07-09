@@ -1,0 +1,92 @@
+{
+  "name": "Hydra Trigger",
+  "version": "0.1.0",
+  "description": "Trigger n8n workflows from Hydra webhook events",
+  "icon": "file:hydra.svg",
+  "defaults": {
+    "name": "Hydra Trigger"
+  },
+  "inputs": [],
+  "outputs": ["main"],
+  "properties": [
+    {
+      "displayName": "Webhook Mode",
+      "name": "mode",
+      "type": "options",
+      "options": [
+        { "name": "Polling", "value": "polling" },
+        { "name": "Webhook", "value": "webhook" }
+      ],
+      "default": "webhook",
+      "description": "Whether to use webhook subscription or polling"
+    },
+    {
+      "displayName": "Tenant",
+      "name": "tenant",
+      "type": "string",
+      "default": "",
+      "placeholder": "tenant-slug",
+      "description": "The Hydra tenant slug to receive events from",
+      "required": true
+    },
+    {
+      "displayName": "Event Type",
+      "name": "event",
+      "type": "options",
+      "options": [
+        { "name": "Envelope Created", "value": "envelope.created" },
+        { "name": "Envelope Completed", "value": "envelope.completed" },
+        { "name": "Envelope Failed", "value": "envelope.failed" },
+        { "name": "Entity Changed", "value": "entity.changed" },
+        { "name": "All Events", "value": "*" }
+      ],
+      "default": "*",
+      "description": "The event type to subscribe to. Use the Hydra REST API webhook endpoint: POST /v1/webhooks/{tenant}/{event}."
+    },
+    {
+      "displayName": "Polling Interval (ms)",
+      "name": "pollingInterval",
+      "type": "number",
+      "default": 60000,
+      "displayOptions": {
+        "show": { "mode": ["polling"] }
+      },
+      "description": "How often to poll for new events (in milliseconds)"
+    },
+    {
+      "displayName": "Hydra Base URL",
+      "name": "hydraBaseUrl",
+      "type": "string",
+      "default": "={{$env.HYDRA_BASE_URL}}",
+      "required": true,
+      "description": "Base URL of the Hydra instance (e.g., https://hydra.example.com)"
+    },
+    {
+      "displayName": "Auth Token",
+      "name": "authToken",
+      "type": "string",
+      "typeName": "password",
+      "default": "={{$env.HYDRA_AUTH_TOKEN}}",
+      "required": true,
+      "description": "Hydra API authentication token"
+    }
+  ],
+  "polling": {
+    "request": {
+      "url": "/v1/events/pending",
+      "method": "GET",
+      "headers": {
+        "Authorization": "={{$credentials.authToken}}",
+        "Content-Type": "application/json"
+      }
+    }
+  },
+  "webhook": {
+    "path": "/v1/webhooks/:tenant/:event",
+    "method": "POST",
+    "responseData": "={{$body}}",
+    "responseHeaders": {
+      "Content-Type": "application/json"
+    }
+  }
+}

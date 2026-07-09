@@ -1,0 +1,16 @@
+[package]
+name = "adapter-suitelike"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bridge-wit = { path = "../../crates/bridge-wit", version = "0.1.0" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.150" }
+
+[lints]
+workspace = true

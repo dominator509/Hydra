@@ -19,7 +19,15 @@ pub use entities::EntitiesRepo;
 pub use envelopes::EnvelopesRepo;
 pub use events::EventsRepo;
 pub use ledger::{LedgerRepo, LedgerRow};
-pub use testkit::TestDb;
+pub use testkit::{MIGRATOR, TestDb};
+
+/// Run all pending SQL migrations on the given pool.
+/// Equivalent to `sqlx migrate run` — applies all migrations from the
+/// `migrations/` directory that have not yet been applied.
+pub async fn run_migrations(pool: &PgPool) -> Result<(), StoreError> {
+    MIGRATOR.run(pool).await?;
+    Ok(())
+}
 
 #[derive(Debug, Error)]
 pub enum StoreError {

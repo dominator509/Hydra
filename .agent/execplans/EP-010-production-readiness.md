@@ -38,8 +38,73 @@ production-readiness-check.sh ok; all PRODUCTION_READINESS sections green with e
 Drills re-runnable (each targets scratch DBs/synthetic tenants); evidence rows append-dated; resume = check which D-rows exist.
 
 ## 12. Progress
-- [ ] M1 - [ ] M2 - [ ] M3 - [ ] M4 - [ ] M5
+- [x] M1 — Readiness script real (production-readiness-check.sh rewritten with verify, smoke, cache-audit, security, drill, and launch-table gates)
+- [ ] M2 — D1 restore + D2 rollback on staging (DEFERRED: requires deployed staging instance)
+- [ ] M3 — D3 nuke drill + D5 autonomy freeze (DEFERRED: requires staging)
+- [ ] M4 — D4 cache drill + 24h soak kickoff (DEFERRED: requires staging + DEEPSEEK_API_KEY for live sample)
+- [ ] M5 — Reviews + soak readback + gate assembly (PARTIAL: code-level review completed; staging items deferred)
 
 ## 13. Surprises & Discoveries
+
+### Drills D1-D5 require staging (Docker + deployed image)
+All five drills (D1 Restore, D2 Rollback, D3 Nuke, D4 Cache, D5 Autonomy Freeze) require a running Docker Compose staging environment with a deployed kernel image. No staging instance currently exists. The drill procedures are fully documented in OPERATIONS.md, ready for execution when staging is available. Deferred to follow-up.
+
+### 24h soak requires staging + running agents
+The 24-hour soak test (.agent/state/soak-24h.md) requires staging with synthetic tenants and active agent workflows. Template is created and ready for data collection. Deferred.
+
+### Live DeepSeek probe requires DEEPSEEK_API_KEY
+D4 cache drill includes a 20-call live sample against DeepSeek API which requires DEEPSEEK_API_KEY environment variable. If absent, the fake-only corpus replay is used, which limits the drill to synthetic data. Deferred.
+
+### Security review partial: code review complete, live scan deferred
+SECURITY.md review confirms:
+- AuthZ matrix implemented with trait-based role enforcement
+- Secret management via age-encrypted vault
+- Wasmtime sandbox with fuel budget + egress proxy
+- Rate limiting via tower-governor
+- Session security with HttpOnly+Secure+SameSite cookies + CSRF tokens
+- Migration additivity documented
+
+Items requiring a running instance (end-to-end authz tests, synthetic alert test, live dependency scan):
+Recorded as [STAGING REQUIRED] in PRODUCTION_READINESS.md.
+
+### PROMOTE=yes gate out of scope per plan
+The final production deploy requires a human `PROMOTE=yes` step outside EP-010 scope.
+
 ## 14. Decision Log
+| Date | Decision | Rationale |
+|------|----------|-----------|
+| 2026-07-08 | D1-D5 drills deferred to follow-up | All five drills require a deployed Docker Compose staging instance that doesn't exist yet |
+| 2026-07-08 | 24h soak deferred | Requires staging with running agents for sustained collection period |
+| 2026-07-08 | Live DeepSeek probe deferred | DEEPSEEK_API_KEY not available; fake-only corpus replay substituted |
+| 2026-07-08 | Security live scan deferred | Code-level review completed; end-to-end tests need running instance |
+| 2026-07-08 | Accessibility audit deferred | Shell UI not yet feature-complete; deferred to UI milestone |
+| 2026-07-08 | Performance benchmarks deferred | Requires staged load-testing infrastructure |
+| 2026-07-08 | Accepted risks documented in PRODUCTION_READINESS.md | Explicitly records what is deferred and why for sign-off transparency |
+
 ## 15. Outcomes & Retrospective
+
+### Completed
+- [x] **M1**: `scripts/production-readiness-check.sh` rewritten as a real gate with 6 sequential gates (verify, smoke, cache-audit, security, drills, launch-table), each naming itself on failure.
+- [x] **Drill Procedures**: D1-D5 step-by-step instructions documented in OPERATIONS.md with preconditions, procedure, expected outcomes, evidence log format, and failure recovery.
+- [x] **Production Readiness Ledger**: PRODUCTION_READINESS.md updated with complete checklists (security, privacy/PII, performance, accessibility, observability, deployment, documentation), launch-gate table with all rows, and documented accepted risks.
+- [x] **24h Soak Template**: `.agent/state/soak-24h.md` created with hourly sampling schedule, resource monitoring, and pass/fail thresholds.
+- [x] **Code-Level Reviews**: Security architecture, privacy policies, template safety, migration additivity, and operational documentation verified from code review. Items needing staging marked [STAGING REQUIRED].
+
+### Deferred (recorded as accepted risks)
+| Item | Reason | Tracking |
+|------|--------|----------|
+| D1 Restore drill | Requires staging | OPERATIONS.md Drill Evidence table |
+| D2 Rollback drill | Requires staging | OPERATIONS.md Drill Evidence table |
+| D3 Nuke drill | Requires staging | OPERATIONS.md Drill Evidence table |
+| D4 Cache drill | Requires staging + DEEPSEEK_API_KEY | OPERATIONS.md Drill Evidence table |
+| D5 Autonomy freeze drill | Requires staging | OPERATIONS.md Drill Evidence table |
+| 24h soak | Requires staging + running agents | .agent/state/soak-24h.md |
+| Live DeepSeek probe | Missing DEEPSEEK_API_KEY | D4 drill procedure |
+| Full security live scan | Requires running instance | PRODUCTION_READINESS.md notes |
+| Accessibility audit | UI not feature-complete | PRODUCTION_READINESS.md accepted risks |
+| Performance benchmarks | Requires load-test infra | PRODUCTION_READINESS.md accepted risks |
+| Human sign-off | Out of scope | Launch gate table "Sign-off" row |
+
+### Final Status
+Production-readiness criteria: **PARTIALLY PASSED** (code-level gates complete; staging-dependent items deferred).
+Awaiting: staging deploy, drill execution, 24h soak, human sign-off + PROMOTE=yes.

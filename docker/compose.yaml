@@ -1,26 +1,146 @@
+# docker/compose.yaml — Hydra deployment topology
+# See DEPLOYMENT.md for architecture details.
+#
+# Networks:
+#   frontnet     — Caddy ↔ kernel  (TLS termination boundary)
+#   backnet-internal — kernel ↔ postgres, nats, egress-proxy
+#
+# Kernel has NO direct internet access; outbound traffic must go through egress-proxy
+# via HTTP_PROXY / HTTPS_PROXY environment variables.
+
+x-kernel-env: &kernel-env
+  HYDRA_BIND: 0.0.0.0:8080
+  HYDRA_BASE_URL: https://localhost:443
+  DATABASE_URL: postgres://hydra:hydra@postgres:5432/hydra
+  NATS_URL: nats://nats:4222
+  HYDRA_ENV: ${HYDRA_ENV:-development}
+  HYDRA_VAULT_KEY: ${HYDRA_VAULT_KEY:?HYDRA_VAULT_KEY must be set}
+  HTTP_PROXY: http://egress-proxy:8888
+  HTTPS_PROXY: http://egress-proxy:8888
+  NO_PROXY: localhost,127.0.0.1,postgres,nats,kernel,caddy,egress-proxy
+
 services:
+  # --- Kernel (core application) ---
+  kernel:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: hydra/kernel:${HYDRA_TAG:-latest}
+    ports:
+      - "${HYDRA_PORT:-8080}:8080"
+    environment:
+      <<: *kernel-env
+    volumes:
+      - hydra-kernel-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - frontnet
+      - backnet-internal
+    # Kernel has no external network access — only internal + egress-proxy
+    dns:
+      - 127.0.0.11
+
+  # --- Caddy (TLS termination, reverse proxy) ---
+  caddy:
+    image: caddy:2.8-alpine
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - kernel
+    restart: unless-stopped
+    networks:
+      - frontnet
+
+  # --- PostgreSQL ---
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: hydra
-      POSTGRES_PASSWORD: hydra
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hydra}
       POSTGRES_USER: hydra
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hydra -d hydra"]
       interval: 5s
       timeout: 5s
       retries: 10
-    ports:
-      - "5432:5432"
     volumes:
       - hydra-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - backnet-internal
 
+  # --- NATS ---
   nats:
     image: nats:2.10-alpine
     command: ["-js", "-m", "8222"]
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "${NATS_CLIENT_PORT:-4222}:4222"
+      - "${NATS_MON_PORT:-8222}:8222"
+    restart: unless-stopped
+    networks:
+      - backnet-internal
+
+  # --- Egress Proxy (tinyproxy) ---
+  # ONLY container with outbound internet access besides Caddy.
+  # All outbound traffic from kernel must route through this proxy.
+  egress-proxy:
+    image: alpine:3.20
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache tinyproxy
+        cp /etc/tinyproxy/tinyproxy.conf /etc/tinyproxy/tinyproxy.conf.bak
+        cat /etc/tinyproxy/tinyproxy.conf.bak | head -5 > /etc/tinyproxy/tinyproxy.conf
+        echo "User tinyproxy" >> /etc/tinyproxy/tinyproxy.conf
+        echo "Group tinyproxy" >> /etc/tinyproxy/tinyproxy.conf
+        echo "Port 8888" >> /etc/tinyproxy/tinyproxy.conf
+        cat /etc/tinyproxy/tinyproxy.conf.bak | grep -E '^(Listen|Timeout|LogLevel|Syslog|ViaProxyName|DisableViaHeader)' >> /etc/tinyproxy/tinyproxy.conf
+        cat /egress-proxy.conf >> /etc/tinyproxy/tinyproxy.conf
+        exec tinyproxy -d
+    volumes:
+      - ./egress-proxy.conf:/egress-proxy.conf:ro
+    restart: unless-stopped
+    networks:
+      - backnet-internal
+
+  # --- Migrate (one-shot, profile=ops) ---
+  migrate:
+    profile:
+      - ops
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: hydra/kernel:${HYDRA_TAG:-latest}
+    environment:
+      <<: *kernel-env
+    command: ["/app/hydra-kernel", "--migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backnet-internal
+    # Migrate uses the same image as kernel but exits after running migrations
 
 volumes:
   hydra-postgres-data:
+  hydra-kernel-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  frontnet:
+    driver: bridge
+  backnet-internal:
+    driver: bridge
+    internal: true

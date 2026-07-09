@@ -1,0 +1,100 @@
+{
+  "title": "TokenKiller",
+  "uid": "hydra-tokenkiller",
+  "description": "TK cache hit ratio, token volume, nuke aborts, and spend tracking.",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Cache Hit Ratio vs Target",
+      "type": "timeseries",
+      "description": "Per-route TK cache hit ratio with 0.97 target threshold",
+      "targets": [
+        {
+          "expr": "hydra_tk_cache_hit_ratio",
+          "legendFormat": "{{route}} hit ratio"
+        }
+      ],
+      "fieldConfig": {
+        "unit": "percentunit",
+        "min": 0,
+        "max": 1
+      },
+      "thresholds": [
+        {
+          "value": 0.97,
+          "color": "orange",
+          "label": "target 0.97"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "id": 2,
+      "title": "Hit / Miss Token Volume",
+      "type": "timeseries",
+      "description": "Token volume broken into cache hits vs misses",
+      "targets": [
+        {
+          "expr": "rate(tk_prompt_tokens_total{kind=\"hit\"}[5m])",
+          "legendFormat": "hit tokens/s"
+        },
+        {
+          "expr": "rate(tk_prompt_tokens_total{kind=\"miss\"}[5m])",
+          "legendFormat": "miss tokens/s"
+        }
+      ],
+      "stack": true,
+      "fieldConfig": {
+        "unit": "tokens/s",
+        "min": 0
+      },
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "id": 3,
+      "title": "Nuke Aborts",
+      "type": "timeseries",
+      "description": "Cumulative nuke aborts per route",
+      "targets": [
+        {
+          "expr": "hydra_tk_nuke_aborts_total",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "unit": "none",
+        "min": 0
+      },
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 }
+    },
+    {
+      "id": 4,
+      "title": "Spend vs Cap",
+      "type": "gauge",
+      "description": "Current month-to-date spend as a fraction of the constitution cap",
+      "targets": [
+        {
+          "expr": "sum(hydra_llm_cost_cents_total) / sum(hydra_cost_cap_cents)",
+          "legendFormat": "spend ratio"
+        }
+      ],
+      "fieldConfig": {
+        "unit": "percentunit",
+        "min": 0,
+        "max": 1,
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "green", "value": null },
+            { "color": "orange", "value": 0.9 },
+            { "color": "red", "value": 1.0 }
+          ]
+        }
+      },
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 }
+    }
+  ],
+  "tags": ["hydra", "tokenkiller"],
+  "editable": true,
+  "time": { "from": "now-1h", "to": "now" }
+}

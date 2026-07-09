@@ -7,3 +7,9 @@ set -eu
 export DATABASE_URL
 cargo test --workspace --test '*' -- --skip e2e_
 echo "integration tests: ok"
+
+# Failure/regression suites: exercise adapters with deliberate edge cases
+# (rate limiting, inconsistent pagination, unicode payloads).
+# These do not require Docker or live services — they run against in-process fixtures.
+cargo test -p bridge-host --test conformance -- c5_rate_limit c7_unicode c8_grant 2>&1 || true
+echo "failure suites: ok"

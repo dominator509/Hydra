@@ -6,6 +6,7 @@ pub mod middleware;
 pub mod rate;
 pub mod rest;
 pub mod services;
+pub mod wiring;
 
 use axum::Router;
 
