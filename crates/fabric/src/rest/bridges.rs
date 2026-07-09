@@ -4,7 +4,7 @@ use axum::Json;
 
 use crate::error::FabricError;
 use crate::services::{
-    dev_admin_actor_from_headers, tenant_from_headers, AppState, BridgeRegisterRequest,
+    auth_ctx_from_headers, tenant_from_headers, AppState, BridgeRegisterRequest,
     BridgeStatusDto,
 };
 
@@ -14,8 +14,8 @@ pub async fn register_bridge(
     Json(request): Json<BridgeRegisterRequest>,
 ) -> Result<Json<governor::ActionEnvelope>, FabricError> {
     let tenant = tenant_from_headers(&headers)?;
-    let actor = dev_admin_actor_from_headers(&headers)?;
-    let envelope = state.bridges.register(tenant, actor, request).await?;
+    let ctx = auth_ctx_from_headers(&headers);
+    let envelope = state.bridges.register(&ctx, tenant, &ctx.principal, request).await?;
     Ok(Json(envelope))
 }
 
@@ -35,8 +35,8 @@ pub async fn pause_bridge(
     headers: HeaderMap,
 ) -> Result<Json<BridgeStatusDto>, FabricError> {
     let tenant = tenant_from_headers(&headers)?;
-    let actor = dev_admin_actor_from_headers(&headers)?;
-    let status = state.bridges.pause(tenant, actor, &id).await?;
+    let ctx = auth_ctx_from_headers(&headers);
+    let status = state.bridges.pause(&ctx, tenant, &ctx.principal, &id).await?;
     Ok(Json(status))
 }
 
@@ -46,7 +46,7 @@ pub async fn resume_bridge(
     headers: HeaderMap,
 ) -> Result<Json<BridgeStatusDto>, FabricError> {
     let tenant = tenant_from_headers(&headers)?;
-    let actor = dev_admin_actor_from_headers(&headers)?;
-    let status = state.bridges.resume(tenant, actor, &id).await?;
+    let ctx = auth_ctx_from_headers(&headers);
+    let status = state.bridges.resume(&ctx, tenant, &ctx.principal, &id).await?;
     Ok(Json(status))
 }

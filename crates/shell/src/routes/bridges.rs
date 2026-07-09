@@ -97,6 +97,7 @@ pub async fn register_bridge(
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
     let tenant = routes::tenant_or_default(&headers);
+    let ctx = routes::auth_ctx_from_headers(&headers);
 
     let adapter_id = form.adapter_id.clone();
     let request = fabric::BridgeRegisterRequest {
@@ -125,7 +126,7 @@ pub async fn register_bridge(
 
     let actor = "dev-admin";
 
-    match state.bridges.register(tenant, actor, request).await {
+    match state.bridges.register(&ctx, tenant, actor, request).await {
         Ok(_) => {
             if let Ok(status) = state.bridges.status(tenant, &adapter_id).await {
                 let csrf = CsrfToken::generate().as_str().to_owned();
@@ -163,9 +164,10 @@ pub async fn pause_bridge(
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
     let tenant = routes::tenant_or_default(&headers);
+    let ctx = routes::auth_ctx_from_headers(&headers);
     let actor = "dev-admin";
 
-    match state.bridges.pause(tenant, actor, &id).await {
+    match state.bridges.pause(&ctx, tenant, actor, &id).await {
         Ok(s) => {
             let csrf = CsrfToken::generate().as_str().to_owned();
             let html = format!(
@@ -200,9 +202,10 @@ pub async fn resume_bridge(
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
     let tenant = routes::tenant_or_default(&headers);
+    let ctx = routes::auth_ctx_from_headers(&headers);
     let actor = "dev-admin";
 
-    match state.bridges.resume(tenant, actor, &id).await {
+    match state.bridges.resume(&ctx, tenant, actor, &id).await {
         Ok(s) => {
             let csrf = CsrfToken::generate().as_str().to_owned();
             let html = format!(

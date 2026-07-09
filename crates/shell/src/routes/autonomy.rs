@@ -158,10 +158,11 @@ pub async fn save_matrix(
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
     let tenant = routes::tenant_or_default(&headers);
+    let ctx = routes::auth_ctx_from_headers(&headers);
     let actor = "dev-admin";
 
     let current = state.autonomy.list(tenant).await.unwrap_or_default();
-    match state.autonomy.replace(tenant, actor, current).await {
+    match state.autonomy.replace(&ctx, tenant, actor, current).await {
         Ok(_) => (StatusCode::OK, "Matrix saved").into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     }
@@ -176,10 +177,11 @@ pub async fn save_kinds(
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
     let tenant = routes::tenant_or_default(&headers);
+    let ctx = routes::auth_ctx_from_headers(&headers);
     let actor = "dev-admin";
 
     let current = state.autonomy.list(tenant).await.unwrap_or_default();
-    match state.autonomy.replace(tenant, actor, current).await {
+    match state.autonomy.replace(&ctx, tenant, actor, current).await {
         Ok(_) => (StatusCode::OK, "Kind overrides saved").into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     }

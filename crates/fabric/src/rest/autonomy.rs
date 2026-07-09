@@ -4,7 +4,7 @@ use axum::Json;
 
 use crate::error::FabricError;
 use crate::services::{
-    dev_admin_actor_from_headers, tenant_from_headers, AppState, AutonomyCellDto,
+    auth_ctx_from_headers, tenant_from_headers, AppState, AutonomyCellDto,
 };
 
 pub async fn list_cells(
@@ -22,7 +22,7 @@ pub async fn replace_cells(
     Json(cells): Json<Vec<AutonomyCellDto>>,
 ) -> Result<Json<Vec<AutonomyCellDto>>, FabricError> {
     let tenant = tenant_from_headers(&headers)?;
-    let actor = dev_admin_actor_from_headers(&headers)?;
-    let cells = state.autonomy.replace(tenant, actor, cells).await?;
+    let ctx = auth_ctx_from_headers(&headers);
+    let cells = state.autonomy.replace(&ctx, tenant, &ctx.principal, cells).await?;
     Ok(Json(cells))
 }

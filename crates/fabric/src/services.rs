@@ -19,7 +19,7 @@ use tokenkiller::{
 };
 use uuid::Uuid;
 
-use crate::auth::SessionStore;
+use crate::auth::{AuthCtx, Role, SessionStore};
 use crate::error::FabricError;
 
 #[derive(Clone)]
@@ -154,9 +154,9 @@ pub trait EnvelopeService: Send + Sync {
         request: EnvelopeCreateRequest,
     ) -> Result<ActionEnvelope, FabricError>;
 
-    async fn approve(&self, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError>;
+    async fn approve(&self, ctx: &AuthCtx, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError>;
 
-    async fn reject(&self, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError>;
+    async fn reject(&self, ctx: &AuthCtx, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError>;
 }
 
 #[async_trait]
@@ -196,6 +196,7 @@ pub trait AutonomyService: Send + Sync {
 
     async fn replace(
         &self,
+        ctx: &AuthCtx,
         tenant: Uuid,
         actor: &str,
         cells: Vec<AutonomyCellDto>,
@@ -206,6 +207,7 @@ pub trait AutonomyService: Send + Sync {
 pub trait BridgeService: Send + Sync {
     async fn register(
         &self,
+        ctx: &AuthCtx,
         tenant: Uuid,
         actor: &str,
         request: BridgeRegisterRequest,
@@ -215,6 +217,7 @@ pub trait BridgeService: Send + Sync {
 
     async fn pause(
         &self,
+        ctx: &AuthCtx,
         tenant: Uuid,
         actor: &str,
         adapter_id: &str,
@@ -222,6 +225,7 @@ pub trait BridgeService: Send + Sync {
 
     async fn resume(
         &self,
+        ctx: &AuthCtx,
         tenant: Uuid,
         actor: &str,
         adapter_id: &str,
@@ -297,29 +301,45 @@ impl EnvelopeService for StoreEnvelopeService {
         Ok(self.store.envelopes.save(tenant, &envelope).await?)
     }
 
-    async fn approve(&self, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError> {
+    async fn approve(&self, ctx: &AuthCtx, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError> {
+        ctx.require_role(Role::Approver)?;
         let mut envelope = self
             .store
             .envelopes
             .list(tenant, EnvelopeState::PendingApproval)
             .await?
             .into_iter()
-            .find(|envelope| envelope.id == id)
+            .find(|e| e.id == id)
             .ok_or(FabricError::NotFound)?;
-        envelope.transition(EnvelopeState::Approved, "approver", &SystemClock)?;
+        // Four-eyes: proposer cannot approve their own envelope
+        let proposed_by = envelope.history.first()
+            .map(|t| t.actor.as_str())
+            .unwrap_or("");
+        if ctx.principal == proposed_by {
+            return Err(FabricError::AuthzDenied);
+        }
+        envelope.transition(EnvelopeState::Approved, &ctx.principal, &SystemClock)?;
         Ok(self.store.envelopes.save(tenant, &envelope).await?)
     }
 
-    async fn reject(&self, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError> {
+    async fn reject(&self, ctx: &AuthCtx, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError> {
+        ctx.require_role(Role::Approver)?;
         let mut envelope = self
             .store
             .envelopes
             .list(tenant, EnvelopeState::PendingApproval)
             .await?
             .into_iter()
-            .find(|envelope| envelope.id == id)
+            .find(|e| e.id == id)
             .ok_or(FabricError::NotFound)?;
-        envelope.transition(EnvelopeState::Rejected, "approver", &SystemClock)?;
+        // Four-eyes: proposer cannot reject their own envelope
+        let proposed_by = envelope.history.first()
+            .map(|t| t.actor.as_str())
+            .unwrap_or("");
+        if ctx.principal == proposed_by {
+            return Err(FabricError::AuthzDenied);
+        }
+        envelope.transition(EnvelopeState::Rejected, &ctx.principal, &SystemClock)?;
         Ok(self.store.envelopes.save(tenant, &envelope).await?)
     }
 }
@@ -446,11 +466,12 @@ impl AutonomyService for StoreAutonomyService {
 
     async fn replace(
         &self,
+        ctx: &AuthCtx,
         tenant: Uuid,
         actor: &str,
         cells: Vec<AutonomyCellDto>,
     ) -> Result<Vec<AutonomyCellDto>, FabricError> {
-        ensure_dev_admin(actor)?;
+        ctx.require_role(Role::Admin)?;
         validate_autonomy_cells(&cells)?;
         let stored = cells
             .iter()
@@ -573,11 +594,12 @@ impl StoreBridgeService {
 impl BridgeService for StoreBridgeService {
     async fn register(
         &self,
+        ctx: &AuthCtx,
         tenant: Uuid,
-        actor: &str,
+        _actor: &str,
         request: BridgeRegisterRequest,
     ) -> Result<ActionEnvelope, FabricError> {
-        ensure_dev_admin(actor)?;
+        ctx.require_role(Role::Admin)?;
         validate_bridge_request(&request)?;
 
         self.envelopes
@@ -608,11 +630,12 @@ impl BridgeService for StoreBridgeService {
 
     async fn pause(
         &self,
+        ctx: &AuthCtx,
         tenant: Uuid,
-        actor: &str,
+        _actor: &str,
         adapter_id: &str,
     ) -> Result<BridgeStatusDto, FabricError> {
-        ensure_dev_admin(actor)?;
+        ctx.require_role(Role::Admin)?;
         let _ = self.current_status(tenant, adapter_id).await?;
         let scoped = scoped_bridge_key(tenant, adapter_id);
         self.store.adapter_kv.set(&scoped, "paused", "true").await?;
@@ -621,11 +644,12 @@ impl BridgeService for StoreBridgeService {
 
     async fn resume(
         &self,
+        ctx: &AuthCtx,
         tenant: Uuid,
-        actor: &str,
+        _actor: &str,
         adapter_id: &str,
     ) -> Result<BridgeStatusDto, FabricError> {
-        ensure_dev_admin(actor)?;
+        ctx.require_role(Role::Admin)?;
         let _ = self.current_status(tenant, adapter_id).await?;
         let scoped = scoped_bridge_key(tenant, adapter_id);
         self.store
@@ -798,6 +822,88 @@ pub fn dev_admin_actor_from_headers(headers: &HeaderMap) -> Result<&'static str,
     }
 }
 
+/// Build an AuthCtx from HTTP request headers.
+///
+/// In the current dev-mode implementation, this builds a session with
+/// appropriate roles from the Bearer token. The `hydra-dev-admin` token
+/// gets the `Admin` role; any other Bearer token gets `Viewer`.
+/// Full SessionStore lookup will be added when auth middleware is wired.
+pub fn auth_ctx_from_headers(headers: &HeaderMap) -> AuthCtx {
+    let tenant = tenant_from_headers(headers)
+        .unwrap_or_else(|_| Uuid::parse_str("00000000-0000-0000-0000-000000000001")
+            .expect("dev tenant"));
+
+    let principal = extract_principal(headers);
+
+    // Build a dev-mode session from the Bearer token when present.
+    let session = build_dev_session(headers, tenant, &principal);
+
+    AuthCtx {
+        principal,
+        tenant,
+        session,
+    }
+}
+
+/// Build a dev-mode session from request headers (no SessionStore lookup).
+fn build_dev_session(headers: &HeaderMap, tenant: Uuid, _principal: &str) -> Option<crate::auth::Session> {
+    let token = extract_bearer_token(headers)?;
+
+    // Dev admin token → Admin role
+    if token == "hydra-dev-admin" {
+        return Some(crate::auth::Session {
+            user_id: Uuid::nil(),
+            tenant_id: tenant,
+            username: "admin".into(),
+            roles: vec![Role::Admin],
+            token: token.to_owned(),
+        });
+    }
+
+    // Any other Bearer token → Viewer role (authenticated, minimal access)
+    Some(crate::auth::Session {
+        user_id: Uuid::nil(),
+        tenant_id: tenant,
+        username: format!("token:{token}"),
+        roles: vec![Role::Viewer],
+        token: token.to_owned(),
+    })
+}
+
+fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
+    let auth = headers.get(AUTHORIZATION)?.to_str().ok()?;
+    auth.strip_prefix("Bearer ")
+}
+
+fn extract_principal(headers: &HeaderMap) -> String {
+    // Try Bearer token first (REST API)
+    if let Some(auth) = headers.get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some(token) = auth.strip_prefix("Bearer ") {
+            // For now, the token IS the principal name in dev mode
+            if token == "hydra-dev-admin" {
+                return "user:admin".into();
+            }
+            return format!("token:{}", &token[..8.min(token.len())]);
+        }
+    }
+
+    // Try session cookie (shell)
+    if let Some(cookie) = headers.get("cookie")
+        .and_then(|v| v.to_str().ok())
+    {
+        for pair in cookie.split(';') {
+            let pair = pair.trim();
+            if let Some(value) = pair.strip_prefix("hydra-session=") {
+                return format!("user:{}", &value[..8.min(value.len())]);
+            }
+        }
+    }
+
+    "anonymous".into()
+}
+
 fn validate_request(request: &EnvelopeCreateRequest) -> Result<(), FabricError> {
     if request.domain.trim().is_empty() {
         return Err(FabricError::ValidationFailed(
@@ -889,14 +995,6 @@ fn apply_merge_patch(target: &mut Value, patch: Value) {
             }
         }
         other => *target = other,
-    }
-}
-
-fn ensure_dev_admin(actor: &str) -> Result<(), FabricError> {
-    if actor == "dev-admin" {
-        Ok(())
-    } else {
-        Err(FabricError::AuthzDenied)
     }
 }
 

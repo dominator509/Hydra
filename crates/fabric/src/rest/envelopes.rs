@@ -5,7 +5,9 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::error::FabricError;
-use crate::services::{tenant_from_headers, AppState, EnvelopeCreateRequest};
+use crate::services::{
+    auth_ctx_from_headers, tenant_from_headers, AppState, EnvelopeCreateRequest,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct EnvelopeListQuery {
@@ -39,7 +41,8 @@ pub async fn approve_envelope(
     Path(id): Path<Uuid>,
 ) -> Result<Json<governor::ActionEnvelope>, FabricError> {
     let tenant = tenant_from_headers(&headers)?;
-    let envelope = state.envelopes.approve(tenant, id).await?;
+    let ctx = auth_ctx_from_headers(&headers);
+    let envelope = state.envelopes.approve(&ctx, tenant, id).await?;
     Ok(Json(envelope))
 }
 
@@ -49,7 +52,8 @@ pub async fn reject_envelope(
     Path(id): Path<Uuid>,
 ) -> Result<Json<governor::ActionEnvelope>, FabricError> {
     let tenant = tenant_from_headers(&headers)?;
-    let envelope = state.envelopes.reject(tenant, id).await?;
+    let ctx = auth_ctx_from_headers(&headers);
+    let envelope = state.envelopes.reject(&ctx, tenant, id).await?;
     Ok(Json(envelope))
 }
 

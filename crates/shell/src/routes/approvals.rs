@@ -143,8 +143,9 @@ pub async fn approve_envelope(
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
     let tenant = routes::tenant_or_default(&headers);
+    let ctx = routes::auth_ctx_from_headers(&headers);
 
-    match state.envelopes.approve(tenant, id).await {
+    match state.envelopes.approve(&ctx, tenant, id).await {
         Ok(envelope) => {
             let row = to_envelope_row(envelope);
             let t = ApprovalRowTemplate {
@@ -178,8 +179,9 @@ pub async fn reject_envelope(
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
     let tenant = routes::tenant_or_default(&headers);
+    let ctx = routes::auth_ctx_from_headers(&headers);
 
-    match state.envelopes.reject(tenant, id).await {
+    match state.envelopes.reject(&ctx, tenant, id).await {
         Ok(envelope) => {
             let row = to_envelope_row(envelope);
             let t = ApprovalRowTemplate {
@@ -212,6 +214,7 @@ pub async fn batch_approve(
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
     let tenant = routes::tenant_or_default(&headers);
+    let ctx = routes::auth_ctx_from_headers(&headers);
 
     let envelopes = match state
         .envelopes
@@ -224,7 +227,7 @@ pub async fn batch_approve(
 
     let mut approved = 0usize;
     for envelope in &envelopes {
-        if state.envelopes.approve(tenant, envelope.id).await.is_ok() {
+        if state.envelopes.approve(&ctx, tenant, envelope.id).await.is_ok() {
             approved += 1;
         }
     }
@@ -274,6 +277,7 @@ pub async fn batch_reject(
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
     let tenant = routes::tenant_or_default(&headers);
+    let ctx = routes::auth_ctx_from_headers(&headers);
 
     let envelopes = match state
         .envelopes
@@ -286,7 +290,7 @@ pub async fn batch_reject(
 
     let mut rejected = 0usize;
     for envelope in &envelopes {
-        if state.envelopes.reject(tenant, envelope.id).await.is_ok() {
+        if state.envelopes.reject(&ctx, tenant, envelope.id).await.is_ok() {
             rejected += 1;
         }
     }

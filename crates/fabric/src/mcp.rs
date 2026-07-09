@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::auth::AuthCtx;
 use crate::services::{
     AppState as FabricAppState, AutonomyService, BlastRadiusDto, BridgeService, ConciergeService,
     EntityService, EnvelopeCreateRequest, EnvelopeService, TkStatsService,
@@ -292,7 +293,12 @@ impl McpHandler {
             Some(eid) => eid,
             None => return rpc_error(id, -32602, "Missing or invalid envelope id".into()),
         };
-        match self.envelopes.approve(tenant, envelope_id).await {
+        let ctx = AuthCtx {
+            principal: "anonymous".into(),
+            tenant,
+            session: None,
+        };
+        match self.envelopes.approve(&ctx, tenant, envelope_id).await {
             Ok(envelope) => rpc_success(id, mcp_text_result(&envelope)),
             Err(e) => rpc_error(id, -32603, format!("approve failed: {e}")),
         }

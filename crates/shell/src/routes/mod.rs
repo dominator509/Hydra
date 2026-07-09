@@ -11,6 +11,7 @@ use axum::routing::{get, post};
 use axum::Router;
 use uuid::Uuid;
 
+use fabric::{AuthCtx, Session};
 use crate::csrf::CsrfToken;
 use crate::flash::FlashMessage;
 
@@ -140,6 +141,21 @@ pub fn tenant_or_default(headers: &HeaderMap) -> Uuid {
         Uuid::parse_str("00000000-0000-0000-0000-000000000001")
             .expect("hardcoded dev tenant uuid should be valid")
     })
+}
+
+/// Build an AuthCtx from request headers for shell routes.
+///
+/// For now, session lookup via SessionStore is future work.
+/// The session is set to None until auth middleware is wired.
+pub fn auth_ctx_from_headers(headers: &HeaderMap) -> AuthCtx {
+    let session: Option<Session> = None;
+    AuthCtx {
+        principal: session_tenant(headers)
+            .map(|t| format!("user:{}", t))
+            .unwrap_or_else(|| "anonymous".into()),
+        tenant: tenant_or_default(headers),
+        session,
+    }
 }
 
 pub struct PageCtx {
