@@ -1,11 +1,8 @@
-use std::env;
-
 use askama::Template;
-use axum::extract::Form;
+use axum::extract::{Form, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use serde::Deserialize;
-use uuid::Uuid;
 
 use crate::csrf::CsrfToken;
 use crate::flash::FlashMessage;
@@ -30,9 +27,12 @@ struct LoginFormTemplate {
 
 #[derive(Deserialize)]
 pub struct LoginForm {
-    _csrf_token: Option<String>,
-    _username: Option<String>,
-    _password: Option<String>,
+    #[serde(rename = "_csrf_token")]
+    pub csrf_token: Option<String>,
+    #[serde(rename = "_username")]
+    pub username: Option<String>,
+    #[serde(rename = "_password")]
+    pub password: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -65,13 +65,18 @@ pub async fn login_page(headers: HeaderMap) -> impl IntoResponse {
     }
 }
 
-pub async fn login_action(_headers: HeaderMap, Form(_form): Form<LoginForm>) -> impl IntoResponse {
-    // Only available in dev mode
-    if !matches!(env::var("HYDRA_ENV").ok().as_deref(), Some("dev")) {
+pub async fn login_action(
+    headers: HeaderMap,
+    State(state): State<fabric::AppState>,
+    Form(form): Form<LoginForm>,
+) -> impl IntoResponse {
+    // Verify CSRF by checking the form token against the hydra-csrf cookie.
+    if let Err(_msg) = routes::verify_csrf_cookie(&headers, &form.csrf_token.unwrap_or_default())
+    {
         let token = CsrfToken::generate();
         let template = LoginFormTemplate {
             csrf_field: token.hidden_field(),
-            error: Some("Login is only available in HYDRA_ENV=dev mode".into()),
+            error: Some("CSRF token mismatch".into()),
         };
         let cookie = routes::csrf_cookie_header(&token);
         return match template.render() {
@@ -88,23 +93,52 @@ pub async fn login_action(_headers: HeaderMap, Form(_form): Form<LoginForm>) -> 
         };
     }
 
-    // Set session cookie for dev admin
-    let tenant = Uuid::parse_str("00000000-0000-0000-0000-000000000001")
-        .expect("hardcoded dev tenant uuid should be valid");
-    let cookie = routes::set_session_cookie(tenant);
+    let username = form.username.unwrap_or_default();
+    let password = form.password.unwrap_or_default();
 
-    (
-        StatusCode::FOUND,
-        [
-            ("location", "/"),
-            ("set-cookie", cookie.to_str().unwrap_or_default()),
-        ],
-        (),
-    )
-        .into_response()
+    match state.auth.authenticate(&username, &password).await {
+        Ok(session) => {
+            let cookie = routes::set_session_cookie(&session.token);
+            (
+                StatusCode::FOUND,
+                [
+                    ("location", "/"),
+                    ("set-cookie", cookie.to_str().unwrap_or_default()),
+                ],
+                (),
+            )
+                .into_response()
+        }
+        Err(_) => {
+            let token = CsrfToken::generate();
+            let template = LoginFormTemplate {
+                csrf_field: token.hidden_field(),
+                error: Some("Invalid credentials".into()),
+            };
+            let cookie = routes::csrf_cookie_header(&token);
+            match template.render() {
+                Ok(html) => (
+                    StatusCode::UNAUTHORIZED,
+                    [
+                        ("content-type", "text/html; charset=utf-8"),
+                        ("set-cookie", cookie.to_str().unwrap_or_default()),
+                    ],
+                    html,
+                )
+                    .into_response(),
+                Err(e) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+                }
+            }
+        }
+    }
 }
 
-pub async fn logout_action(headers: HeaderMap, Form(form): Form<LogoutForm>) -> impl IntoResponse {
+pub async fn logout_action(
+    headers: HeaderMap,
+    State(state): State<fabric::AppState>,
+    Form(form): Form<LogoutForm>,
+) -> impl IntoResponse {
     if routes::verify_csrf(&headers, &form._csrf_token).is_err() {
         // Still redirect to login on CSRF failure
         let cookie = routes::clear_session_cookie();
@@ -117,6 +151,11 @@ pub async fn logout_action(headers: HeaderMap, Form(form): Form<LogoutForm>) -> 
             (),
         )
             .into_response();
+    }
+
+    // Revoke the session if present.
+    if let Some(token) = routes::session_token(&headers) {
+        let _ = state.auth.revoke(&token).await;
     }
 
     let cookie = routes::clear_session_cookie();

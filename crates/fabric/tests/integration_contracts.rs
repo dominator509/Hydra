@@ -41,6 +41,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
             .await?;
 
         let state = AppState::new(
+            Arc::new(fabric::auth::SessionStore::new(db.pool.clone())),
             Arc::new(StoreEntityService::new(store.clone())),
             Arc::new(StoreAutonomyService::new(store.clone())),
             Arc::new(StoreBridgeService::new(store.clone(), demo_governor())),

@@ -76,6 +76,7 @@ async fn run() -> Result<(), KernelError> {
 
     // Build fabric service layer.
     let store = store::Store::new(pool.clone());
+    let session_store = Arc::new(fabric::auth::SessionStore::new(pool.clone()));
 
     // Governor does not implement Clone; create two separate instances.
     let entity_service: Arc<dyn fabric::EntityService> =
@@ -96,6 +97,7 @@ async fn run() -> Result<(), KernelError> {
         Arc::new(fabric::ConciergeServiceImpl);
 
     let fabric_state = fabric::AppState::new(
+        session_store,
         entity_service,
         autonomy_service,
         bridge_service,

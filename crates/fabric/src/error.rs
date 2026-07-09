@@ -31,6 +31,8 @@ impl ProblemJson {
 pub enum FabricError {
     #[error("validation_failed: {0}")]
     ValidationFailed(String),
+    #[error("authn_failed: {0}")]
+    AuthnFailed(String),
     #[error("not_found")]
     NotFound,
     #[error("tenant_mismatch")]
@@ -59,6 +61,7 @@ impl FabricError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::ValidationFailed(_) => "validation_failed",
+            Self::AuthnFailed(_) => "authn_failed",
             Self::NotFound => "not_found",
             Self::TenantMismatch => "tenant_mismatch",
             Self::VersionConflict => "version_conflict",
@@ -76,6 +79,7 @@ impl FabricError {
     pub fn status(&self) -> StatusCode {
         match self {
             Self::ValidationFailed(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::AuthnFailed(_) => StatusCode::UNAUTHORIZED,
             Self::NotFound | Self::TenantMismatch => StatusCode::NOT_FOUND,
             Self::VersionConflict => StatusCode::CONFLICT,
             Self::AuthzDenied | Self::ConstitutionBlocked(_) | Self::CellManualOnly => {
@@ -91,6 +95,7 @@ impl FabricError {
     pub fn title(&self) -> &'static str {
         match self {
             Self::ValidationFailed(_) => "Validation failed",
+            Self::AuthnFailed(_) => "Authentication failed",
             Self::NotFound => "Not found",
             Self::TenantMismatch => "Tenant mismatch",
             Self::VersionConflict => "Version conflict",
@@ -108,6 +113,7 @@ impl FabricError {
     pub fn detail(&self) -> Option<String> {
         match self {
             Self::ValidationFailed(detail)
+            | Self::AuthnFailed(detail)
             | Self::LlmProviderError(detail)
             | Self::TkOutputNuked(detail)
             | Self::TkPiiRouteBlocked(detail)
@@ -123,6 +129,12 @@ impl IntoResponse for FabricError {
         let status = self.status();
         let body = ProblemJson::new(self.code(), self.title(), self.detail());
         (status, Json(body)).into_response()
+    }
+}
+
+impl From<sqlx::Error> for FabricError {
+    fn from(value: sqlx::Error) -> Self {
+        Self::Internal(value.to_string())
     }
 }
 

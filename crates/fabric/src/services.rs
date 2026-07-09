@@ -19,10 +19,12 @@ use tokenkiller::{
 };
 use uuid::Uuid;
 
+use crate::auth::SessionStore;
 use crate::error::FabricError;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub auth: Arc<SessionStore>,
     pub entities: Arc<dyn EntityService>,
     pub autonomy: Arc<dyn AutonomyService>,
     pub bridges: Arc<dyn BridgeService>,
@@ -33,6 +35,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(
+        auth: Arc<SessionStore>,
         entities: Arc<dyn EntityService>,
         autonomy: Arc<dyn AutonomyService>,
         bridges: Arc<dyn BridgeService>,
@@ -41,6 +44,7 @@ impl AppState {
         concierge: Arc<dyn ConciergeService>,
     ) -> Self {
         Self {
+            auth,
             entities,
             autonomy,
             bridges,

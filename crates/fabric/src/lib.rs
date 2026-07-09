@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod egress;
 pub mod error;
 pub mod mcp;
@@ -7,6 +8,7 @@ pub mod services;
 use axum::Router;
 
 pub use error::{FabricError, ProblemJson};
+pub use auth::{AuthCtx, Role, Session, SessionStore};
 pub use services::{
     AppState, AutonomyCellDto, AutonomyService, BlastRadiusDto, BridgeGrantDto,
     BridgeRegisterRequest, BridgeService, BridgeStatusDto, ConciergePingResponse, ConciergeService,

@@ -73,10 +73,15 @@ pub fn session_cookie_value(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-pub fn set_session_cookie(tenant: Uuid) -> HeaderValue {
+/// Extract the raw session token from the `hydra-session` cookie.
+pub fn session_token(headers: &HeaderMap) -> Option<String> {
+    session_cookie_value(headers)
+}
+
+pub fn set_session_cookie(token: &str) -> HeaderValue {
     HeaderValue::from_str(&format!(
         "{}={}; Path=/; HttpOnly; SameSite=Lax",
-        SESSION_COOKIE, tenant
+        SESSION_COOKIE, token
     ))
     .expect("session cookie value should be valid ASCII")
 }
@@ -98,6 +103,32 @@ pub fn verify_csrf(headers: &HeaderMap, form_token: &str) -> Result<(), FlashMes
     let session = session_cookie_value(headers)
         .ok_or_else(|| FlashMessage::error("no session cookie for CSRF check"))?;
     if session == form_token {
+        Ok(())
+    } else {
+        Err(FlashMessage::error("CSRF token mismatch"))
+    }
+}
+
+/// Verify a CSRF token from a login form against the `hydra-csrf` cookie.
+///
+/// This is used during login when no session cookie exists yet.
+pub fn verify_csrf_cookie(headers: &HeaderMap, form_token: &str) -> Result<(), FlashMessage> {
+    let cookie = headers
+        .get("cookie")
+        .ok_or_else(|| FlashMessage::error("no cookie header for CSRF check"))?
+        .to_str()
+        .map_err(|_| FlashMessage::error("invalid cookie encoding"))?;
+
+    let csrf_value = cookie
+        .split(';')
+        .map(|s| s.trim())
+        .find_map(|pair| pair.strip_prefix("hydra-csrf="))
+        .ok_or_else(|| FlashMessage::error("no CSRF cookie found"))?;
+
+    let token =
+        CsrfToken::from_cookie(csrf_value).ok_or_else(|| FlashMessage::error("invalid CSRF cookie value"))?;
+
+    if token.valid(form_token) {
         Ok(())
     } else {
         Err(FlashMessage::error("CSRF token mismatch"))
