@@ -80,23 +80,18 @@ async fn run() -> Result<(), KernelError> {
     // Governor does not implement Clone; create two separate instances.
     let entity_service: Arc<dyn fabric::EntityService> =
         Arc::new(fabric::StoreEntityService::new(store.clone()));
-    let envelope_service: Arc<dyn fabric::EnvelopeService> =
-        Arc::new(fabric::StoreEnvelopeService::new(
-            store.clone(),
-            fabric::services::demo_governor(),
-        ));
+    let envelope_service: Arc<dyn fabric::EnvelopeService> = Arc::new(
+        fabric::StoreEnvelopeService::new(store.clone(), fabric::services::demo_governor()),
+    );
     let autonomy_service: Arc<dyn fabric::AutonomyService> =
         Arc::new(fabric::StoreAutonomyService::new(store.clone()));
-    let bridge_service: Arc<dyn fabric::BridgeService> =
-        Arc::new(fabric::StoreBridgeService::new(
-            store.clone(),
-            fabric::services::demo_governor(),
-        ));
-    let tk_stats_service: Arc<dyn fabric::TkStatsService> =
-        Arc::new(fabric::StoreTkStatsService::new(
-            store.ledger.clone(),
-            vec!["concierge".into()],
-        ));
+    let bridge_service: Arc<dyn fabric::BridgeService> = Arc::new(fabric::StoreBridgeService::new(
+        store.clone(),
+        fabric::services::demo_governor(),
+    ));
+    let tk_stats_service: Arc<dyn fabric::TkStatsService> = Arc::new(
+        fabric::StoreTkStatsService::new(store.ledger.clone(), vec!["concierge".into()]),
+    );
     let concierge_service: Arc<dyn fabric::ConciergeService> =
         Arc::new(fabric::ConciergeServiceImpl);
 
@@ -212,10 +207,7 @@ async fn readyz(
     Extension(pool): Extension<PgPool>,
     Extension(nats): Extension<NatsClient>,
 ) -> impl IntoResponse {
-    if let Err(error) = sqlx::query!("SELECT 1 as \"one!\"")
-        .fetch_one(&pool)
-        .await
-    {
+    if let Err(error) = sqlx::query!("SELECT 1 as \"one!\"").fetch_one(&pool).await {
         warn!(error = %error, "readyz postgres check failed");
         return (StatusCode::SERVICE_UNAVAILABLE, "postgres");
     }

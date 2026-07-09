@@ -1,6 +1,6 @@
-use axum::response::{IntoResponse, Response};
-use axum::http::StatusCode;
 use askama::Template;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 
 #[derive(Debug, Clone)]
 pub struct FlashMessage {
@@ -19,15 +19,27 @@ pub enum FlashLevel {
 
 impl FlashMessage {
     pub fn success(text: impl Into<String>) -> Self {
-        Self { level: FlashLevel::Success, text: text.into(), code: None }
+        Self {
+            level: FlashLevel::Success,
+            text: text.into(),
+            code: None,
+        }
     }
 
     pub fn error(text: impl Into<String>) -> Self {
-        Self { level: FlashLevel::Error, text: text.into(), code: None }
+        Self {
+            level: FlashLevel::Error,
+            text: text.into(),
+            code: None,
+        }
     }
 
     pub fn warning(text: impl Into<String>) -> Self {
-        Self { level: FlashLevel::Warning, text: text.into(), code: None }
+        Self {
+            level: FlashLevel::Warning,
+            text: text.into(),
+            code: None,
+        }
     }
 
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
@@ -45,6 +57,7 @@ impl FlashMessage {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Template)]
 #[template(path = "components/flash.html")]
 pub struct FlashTemplate {
@@ -54,8 +67,17 @@ pub struct FlashTemplate {
 impl IntoResponse for FlashTemplate {
     fn into_response(self) -> Response {
         match Template::render(&self) {
-            Ok(html) => (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response(),
-            Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Template error: {error}")).into_response(),
+            Ok(html) => (
+                StatusCode::OK,
+                [("content-type", "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response(),
+            Err(error) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Template error: {error}"),
+            )
+                .into_response(),
         }
     }
 }

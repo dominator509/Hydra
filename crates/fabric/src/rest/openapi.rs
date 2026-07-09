@@ -49,6 +49,12 @@ pub async fn openapi() -> Json<Value> {
             },
             "/v1/tk/ledger": {
                 "get": { "summary": "TOKENKILLER ledger stats" }
+            },
+            "/v1/concierge/ping": {
+                "post": { "summary": "Smoke-test the TK call path with a concierge ping" }
+            },
+            "/mcp": {
+                "post": { "summary": "MCP JSON-RPC endpoint for agent tool access" }
             }
         }
     }))

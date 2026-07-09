@@ -85,7 +85,11 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
             .await?;
         assert_eq!(ping.route, "concierge");
         assert_eq!(ping.provider, "test");
-        assert!(ping.answer.contains("hello world"), "answer should echo the question: {}", ping.answer);
+        assert!(
+            ping.answer.contains("hello world"),
+            "answer should echo the question: {}",
+            ping.answer
+        );
         assert!(ping.tokens_used > 0);
 
         let empty_cells = client

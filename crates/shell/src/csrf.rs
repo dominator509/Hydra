@@ -1,5 +1,6 @@
 use axum::http::HeaderValue;
 
+#[allow(dead_code)]
 const CSRF_HEADER: &str = "x-hydra-csrf";
 const CSRF_FORM_FIELD: &str = "_csrf_token";
 
@@ -46,10 +47,12 @@ impl CsrfToken {
     }
 }
 
+#[allow(dead_code)]
 pub fn csrf_header(token: &CsrfToken) -> HeaderValue {
     HeaderValue::from_str(token.as_str()).expect("csrf token is always valid ASCII")
 }
 
+#[allow(dead_code)]
 pub fn verify_csrf(session_token: &CsrfToken, form_token: &str) -> Result<(), CsrfError> {
     if session_token.valid(form_token) {
         Ok(())
@@ -60,4 +63,5 @@ pub fn verify_csrf(session_token: &CsrfToken, form_token: &str) -> Result<(), Cs
 
 #[derive(Debug, thiserror::Error)]
 #[error("CSRF token mismatch")]
+#[allow(dead_code)]
 pub struct CsrfError;

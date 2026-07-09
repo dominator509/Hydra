@@ -1,7 +1,7 @@
 use askama::Template;
 use axum::extract::{Form, Path, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::{Html, IntoResponse};
+use axum::response::IntoResponse;
 use serde::Deserialize;
 
 use crate::csrf::CsrfToken;
@@ -68,14 +68,24 @@ pub async fn bridges_list(
 
     let ctx = routes::PageCtx::new("Bridges", "bridges", &headers, &token);
     let template = BridgesTemplate {
-        title: ctx.title, tenant: ctx.tenant, current_page: ctx.current_page,
-        flash: ctx.flash, csrf: ctx.csrf, bridges: views,
+        title: ctx.title,
+        tenant: ctx.tenant,
+        current_page: ctx.current_page,
+        flash: ctx.flash,
+        csrf: ctx.csrf,
+        bridges: views,
     };
-    template.render().map(|html| {
-        (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-    }).unwrap_or_else(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-    })
+    template
+        .render()
+        .map(|html| {
+            (
+                StatusCode::OK,
+                [("content-type", "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response()
+        })
+        .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
 }
 
 pub async fn register_bridge(
@@ -94,10 +104,20 @@ pub async fn register_bridge(
         wiring_ref: form.wiring_ref,
         rationale: form.rationale,
         grant: fabric::BridgeGrantDto {
-            origins: form.origins.unwrap_or_default().split(',')
-                .map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect(),
-            secret_names: form.secret_names.unwrap_or_default().split(',')
-                .map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect(),
+            origins: form
+                .origins
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            secret_names: form
+                .secret_names
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .collect(),
             dsn_name: None,
             fuel: form.fuel,
         },
@@ -109,12 +129,23 @@ pub async fn register_bridge(
         Ok(_) => {
             if let Ok(status) = state.bridges.status(tenant, &adapter_id).await {
                 let csrf = CsrfToken::generate().as_str().to_owned();
-                let wiring_html = status.wiring_ref.as_deref().map(|w| format!("&#128279; {w}")).unwrap_or_default();
+                let wiring_html = status
+                    .wiring_ref
+                    .as_deref()
+                    .map(|w| format!("&#128279; {w}"))
+                    .unwrap_or_default();
                 let button = if status.state == "active" {
                     format!("<form action=\"/bridges/{0}/pause\" method=\"post\" hx-post=\"/bridges/{0}/pause\" hx-target=\"#bridge-{0}\" hx-swap=\"outerHTML\"><input type=\"hidden\" name=\"_csrf_token\" value=\"{1}\"><button type=\"submit\">Pause</button></form>", adapter_id, csrf)
-                } else { String::new() };
+                } else {
+                    String::new()
+                };
                 let html = format!("<div class=\"bridge-card\" id=\"bridge-{0}\"><div class=\"bridge-info\"><div class=\"bridge-adapter\">{0}</div><div class=\"bridge-meta\"><span class=\"chip chip-active\">{1}</span>{2}</div></div><div class=\"bridge-actions\">{3}</div></div>", adapter_id, status.state, wiring_html, button);
-                return (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response();
+                return (
+                    StatusCode::OK,
+                    [("content-type", "text/html; charset=utf-8")],
+                    html,
+                )
+                    .into_response();
             }
             (StatusCode::OK, "Bridge registered").into_response()
         }
@@ -148,7 +179,12 @@ pub async fn pause_bridge(
                  <button type=\"submit\">Resume</button></form></div></div>",
                 id = id, csrf = csrf, state = s.state
             );
-            (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
+            (
+                StatusCode::OK,
+                [("content-type", "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     }
@@ -180,7 +216,12 @@ pub async fn resume_bridge(
                  <button type=\"submit\">Pause</button></form></div></div>",
                 id = id, csrf = csrf, state = s.state
             );
-            (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
+            (
+                StatusCode::OK,
+                [("content-type", "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     }

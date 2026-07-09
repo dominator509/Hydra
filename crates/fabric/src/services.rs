@@ -671,14 +671,22 @@ pub struct ConciergePingResponse {
 
 #[async_trait]
 pub trait ConciergeService: Send + Sync {
-    async fn ping(&self, tenant: Uuid, question: &str) -> Result<ConciergePingResponse, FabricError>;
+    async fn ping(
+        &self,
+        tenant: Uuid,
+        question: &str,
+    ) -> Result<ConciergePingResponse, FabricError>;
 }
 
 pub struct ConciergeServiceImpl;
 
 #[async_trait]
 impl ConciergeService for ConciergeServiceImpl {
-    async fn ping(&self, tenant: Uuid, question: &str) -> Result<ConciergePingResponse, FabricError> {
+    async fn ping(
+        &self,
+        tenant: Uuid,
+        question: &str,
+    ) -> Result<ConciergePingResponse, FabricError> {
         let mut routes = HashMap::new();
         routes.insert(
             "concierge".into(),

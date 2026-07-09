@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use askama::Template;
 use axum::extract::{Form, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::{Html, IntoResponse};
+use axum::response::IntoResponse;
 use serde::Deserialize;
 
 use crate::csrf::CsrfToken;
@@ -60,24 +60,43 @@ pub async fn autonomy_page(
             let mut ctx = routes::PageCtx::new("Autonomy", "autonomy", &headers, &token);
             ctx = ctx.with_flash(FlashMessage::error(format!("Failed to load autonomy: {e}")));
             let template = AutonomyTemplate {
-                title: ctx.title, tenant: ctx.tenant, current_page: ctx.current_page,
-                flash: ctx.flash, csrf: ctx.csrf,
-                actions: Vec::new(), matrix_rows: Vec::new(),
+                title: ctx.title,
+                tenant: ctx.tenant,
+                current_page: ctx.current_page,
+                flash: ctx.flash,
+                csrf: ctx.csrf,
+                actions: Vec::new(),
+                matrix_rows: Vec::new(),
             };
-            return template.render().map(|html| {
-                (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-            }).unwrap_or_else(|e| {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-            });
+            return template
+                .render()
+                .map(|html| {
+                    (
+                        StatusCode::OK,
+                        [("content-type", "text/html; charset=utf-8")],
+                        html,
+                    )
+                        .into_response()
+                })
+                .unwrap_or_else(|e| {
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+                });
         }
     };
 
     let mut action_set = BTreeSet::new();
-    for cell in &cells { action_set.insert(cell.action.clone()); }
+    for cell in &cells {
+        action_set.insert(cell.action.clone());
+    }
     let actions: Vec<String> = action_set.into_iter().collect();
 
     let mut domain_map = std::collections::BTreeMap::new();
-    for cell in cells { domain_map.entry(cell.domain.clone()).or_insert_with(Vec::new).push(cell); }
+    for cell in cells {
+        domain_map
+            .entry(cell.domain.clone())
+            .or_insert_with(Vec::new)
+            .push(cell);
+    }
 
     let mut matrix_rows = Vec::new();
     for (domain, domain_cells) in &domain_map {
@@ -101,19 +120,33 @@ pub async fn autonomy_page(
                 });
             }
         }
-        matrix_rows.push(MatrixRow { domain: domain.clone(), columns });
+        matrix_rows.push(MatrixRow {
+            domain: domain.clone(),
+            columns,
+        });
     }
 
     let ctx = routes::PageCtx::new("Autonomy", "autonomy", &headers, &token);
     let template = AutonomyTemplate {
-        title: ctx.title, tenant: ctx.tenant, current_page: ctx.current_page,
-        flash: ctx.flash, csrf: ctx.csrf, actions, matrix_rows,
+        title: ctx.title,
+        tenant: ctx.tenant,
+        current_page: ctx.current_page,
+        flash: ctx.flash,
+        csrf: ctx.csrf,
+        actions,
+        matrix_rows,
     };
-    template.render().map(|html| {
-        (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-    }).unwrap_or_else(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-    })
+    template
+        .render()
+        .map(|html| {
+            (
+                StatusCode::OK,
+                [("content-type", "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response()
+        })
+        .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
 }
 
 pub async fn save_matrix(

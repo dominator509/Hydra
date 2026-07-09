@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use askama::Template;
 use axum::extract::{Form, Path, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::{Html, IntoResponse};
+use axum::response::IntoResponse;
 use governor::Reversal;
 use serde::Deserialize;
 use serde_json::json;
@@ -147,12 +147,19 @@ pub async fn pipeline_board(
                 csrf: ctx.csrf,
                 stages: Vec::new(),
             };
-            return template.render().map(|html| {
-                (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html)
-                    .into_response()
-            }).unwrap_or_else(|e| {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-            });
+            return template
+                .render()
+                .map(|html| {
+                    (
+                        StatusCode::OK,
+                        [("content-type", "text/html; charset=utf-8")],
+                        html,
+                    )
+                        .into_response()
+                })
+                .unwrap_or_else(|e| {
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+                });
         }
     };
 
@@ -186,11 +193,17 @@ pub async fn pipeline_board(
         csrf: ctx.csrf,
         stages,
     };
-    template.render().map(|html| {
-        (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-    }).unwrap_or_else(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-    })
+    template
+        .render()
+        .map(|html| {
+            (
+                StatusCode::OK,
+                [("content-type", "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response()
+        })
+        .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
 }
 
 pub async fn pipeline_record(
@@ -240,11 +253,17 @@ pub async fn pipeline_record(
         },
         events,
     };
-    template.render().map(|html| {
-        (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-    }).unwrap_or_else(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-    })
+    template
+        .render()
+        .map(|html| {
+            (
+                StatusCode::OK,
+                [("content-type", "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response()
+        })
+        .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
 }
 
 pub async fn pipeline_action(
@@ -256,7 +275,8 @@ pub async fn pipeline_action(
     let token = CsrfToken::generate();
     let tenant = routes::tenant_or_default(&headers);
 
-    let (result_state, csrf) = if let Err(flash) = routes::verify_csrf(&headers, &form._csrf_token) {
+    let (result_state, csrf) = if let Err(flash) = routes::verify_csrf(&headers, &form._csrf_token)
+    {
         (
             Some(ActionResult {
                 css_class: "chip-failed".into(),
@@ -315,11 +335,17 @@ pub async fn pipeline_action(
         button_label: "Retry".into(),
         csrf,
     };
-    template.render().map(|html| {
-        (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-    }).unwrap_or_else(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-    })
+    template
+        .render()
+        .map(|html| {
+            (
+                StatusCode::OK,
+                [("content-type", "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response()
+        })
+        .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
 }
 
 pub async fn pipeline_move(
@@ -387,15 +413,22 @@ pub async fn pipeline_new_deal(
 // ── Helpers ──
 
 fn extract_title(body: &serde_json::Value) -> &str {
-    body.get("title").and_then(serde_json::Value::as_str).unwrap_or("untitled")
+    body.get("title")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("untitled")
 }
 
 fn extract_stage(body: &serde_json::Value) -> &str {
-    body.get("stage").and_then(serde_json::Value::as_str).unwrap_or("unknown")
+    body.get("stage")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown")
 }
 
 fn format_value(body: &serde_json::Value) -> String {
-    let cents = body.get("value_cents").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    let cents = body
+        .get("value_cents")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
     if cents >= 100_000_000 {
         format!("${:.1}M", cents as f64 / 100_000_000.0)
     } else if cents >= 100_000 {
@@ -410,17 +443,19 @@ fn build_fields(body: &serde_json::Value) -> Vec<FieldView> {
         Some(o) => o,
         None => return Vec::new(),
     };
-    obj.iter().map(|(key, val)| FieldView {
-        name: key.clone(),
-        value: match val {
-            serde_json::Value::String(s) => s.clone(),
-            serde_json::Value::Number(n) => n.to_string(),
-            serde_json::Value::Bool(b) => b.to_string(),
-            _ => val.to_string(),
-        },
-        url: None,
-        code: false,
-    }).collect()
+    obj.iter()
+        .map(|(key, val)| FieldView {
+            name: key.clone(),
+            value: match val {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Number(n) => n.to_string(),
+                serde_json::Value::Bool(b) => b.to_string(),
+                _ => val.to_string(),
+            },
+            url: None,
+            code: false,
+        })
+        .collect()
 }
 
 fn envelope_state_label(state: governor::EnvelopeState) -> &'static str {

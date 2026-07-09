@@ -1,7 +1,7 @@
 use askama::Template;
 use axum::extract::{Form, Path, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::{Html, IntoResponse};
+use axum::response::IntoResponse;
 use governor::{EnvelopeState, Reversal};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -34,6 +34,7 @@ struct EnvelopeRow {
     action: String,
     kind: Option<String>,
     rationale: String,
+    #[allow(dead_code)]
     state: String,
     state_css: String,
     reversal: Reversal,
@@ -75,33 +76,61 @@ pub async fn approvals_list(
     let token = CsrfToken::generate();
     let tenant = routes::tenant_or_default(&headers);
 
-    let envelopes = match state.envelopes.list(tenant, EnvelopeState::PendingApproval).await {
+    let envelopes = match state
+        .envelopes
+        .list(tenant, EnvelopeState::PendingApproval)
+        .await
+    {
         Ok(list) => list.into_iter().map(to_envelope_row).collect(),
         Err(e) => {
             let mut ctx = routes::PageCtx::new("Approvals", "approvals", &headers, &token);
-            ctx = ctx.with_flash(FlashMessage::error(format!("Failed to load approvals: {e}")));
+            ctx = ctx.with_flash(FlashMessage::error(format!(
+                "Failed to load approvals: {e}"
+            )));
             let template = ApprovalsTemplate {
-                title: ctx.title, tenant: ctx.tenant, current_page: ctx.current_page,
-                flash: ctx.flash, csrf: ctx.csrf, envelopes: Vec::new(),
+                title: ctx.title,
+                tenant: ctx.tenant,
+                current_page: ctx.current_page,
+                flash: ctx.flash,
+                csrf: ctx.csrf,
+                envelopes: Vec::new(),
             };
-            return template.render().map(|html| {
-                (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-            }).unwrap_or_else(|e| {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-            });
+            return template
+                .render()
+                .map(|html| {
+                    (
+                        StatusCode::OK,
+                        [("content-type", "text/html; charset=utf-8")],
+                        html,
+                    )
+                        .into_response()
+                })
+                .unwrap_or_else(|e| {
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+                });
         }
     };
 
     let ctx = routes::PageCtx::new("Approvals", "approvals", &headers, &token);
     let template = ApprovalsTemplate {
-        title: ctx.title, tenant: ctx.tenant, current_page: ctx.current_page,
-        flash: ctx.flash, csrf: ctx.csrf, envelopes,
+        title: ctx.title,
+        tenant: ctx.tenant,
+        current_page: ctx.current_page,
+        flash: ctx.flash,
+        csrf: ctx.csrf,
+        envelopes,
     };
-    template.render().map(|html| {
-        (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-    }).unwrap_or_else(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-    })
+    template
+        .render()
+        .map(|html| {
+            (
+                StatusCode::OK,
+                [("content-type", "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response()
+        })
+        .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
 }
 
 pub async fn approve_envelope(
@@ -118,12 +147,22 @@ pub async fn approve_envelope(
     match state.envelopes.approve(tenant, id).await {
         Ok(envelope) => {
             let row = to_envelope_row(envelope);
-            let t = ApprovalRowTemplate { envelope: row, csrf: CsrfToken::generate().hidden_field() };
-            t.render().map(|html| {
-                (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-            }).unwrap_or_else(|e| {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-            })
+            let t = ApprovalRowTemplate {
+                envelope: row,
+                csrf: CsrfToken::generate().hidden_field(),
+            };
+            t.render()
+                .map(|html| {
+                    (
+                        StatusCode::OK,
+                        [("content-type", "text/html; charset=utf-8")],
+                        html,
+                    )
+                        .into_response()
+                })
+                .unwrap_or_else(|e| {
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+                })
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     }
@@ -143,12 +182,22 @@ pub async fn reject_envelope(
     match state.envelopes.reject(tenant, id).await {
         Ok(envelope) => {
             let row = to_envelope_row(envelope);
-            let t = ApprovalRowTemplate { envelope: row, csrf: CsrfToken::generate().hidden_field() };
-            t.render().map(|html| {
-                (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-            }).unwrap_or_else(|e| {
-                (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-            })
+            let t = ApprovalRowTemplate {
+                envelope: row,
+                csrf: CsrfToken::generate().hidden_field(),
+            };
+            t.render()
+                .map(|html| {
+                    (
+                        StatusCode::OK,
+                        [("content-type", "text/html; charset=utf-8")],
+                        html,
+                    )
+                        .into_response()
+                })
+                .unwrap_or_else(|e| {
+                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+                })
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     }
@@ -164,7 +213,11 @@ pub async fn batch_approve(
     }
     let tenant = routes::tenant_or_default(&headers);
 
-    let envelopes = match state.envelopes.list(tenant, EnvelopeState::PendingApproval).await {
+    let envelopes = match state
+        .envelopes
+        .list(tenant, EnvelopeState::PendingApproval)
+        .await
+    {
         Ok(list) => list,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     };
@@ -178,22 +231,38 @@ pub async fn batch_approve(
 
     let token = CsrfToken::generate();
     let ctx = routes::PageCtx::new("Approvals", "approvals", &headers, &token);
-    let flash = vec![FlashMessage::success(format!("{approved} envelope(s) approved"))];
+    let flash = vec![FlashMessage::success(format!(
+        "{approved} envelope(s) approved"
+    ))];
 
-    let remaining = match state.envelopes.list(tenant, EnvelopeState::PendingApproval).await {
+    let remaining = match state
+        .envelopes
+        .list(tenant, EnvelopeState::PendingApproval)
+        .await
+    {
         Ok(list) => list.into_iter().map(to_envelope_row).collect(),
         Err(_) => Vec::new(),
     };
 
     let template = ApprovalsTemplate {
-        title: ctx.title, tenant: ctx.tenant, current_page: ctx.current_page,
-        flash, csrf: ctx.csrf, envelopes: remaining,
+        title: ctx.title,
+        tenant: ctx.tenant,
+        current_page: ctx.current_page,
+        flash,
+        csrf: ctx.csrf,
+        envelopes: remaining,
     };
-    template.render().map(|html| {
-        (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-    }).unwrap_or_else(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-    })
+    template
+        .render()
+        .map(|html| {
+            (
+                StatusCode::OK,
+                [("content-type", "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response()
+        })
+        .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
 }
 
 pub async fn batch_reject(
@@ -206,7 +275,11 @@ pub async fn batch_reject(
     }
     let tenant = routes::tenant_or_default(&headers);
 
-    let envelopes = match state.envelopes.list(tenant, EnvelopeState::PendingApproval).await {
+    let envelopes = match state
+        .envelopes
+        .list(tenant, EnvelopeState::PendingApproval)
+        .await
+    {
         Ok(list) => list,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     };
@@ -220,22 +293,38 @@ pub async fn batch_reject(
 
     let token = CsrfToken::generate();
     let ctx = routes::PageCtx::new("Approvals", "approvals", &headers, &token);
-    let flash = vec![FlashMessage::success(format!("{rejected} envelope(s) rejected"))];
+    let flash = vec![FlashMessage::success(format!(
+        "{rejected} envelope(s) rejected"
+    ))];
 
-    let remaining = match state.envelopes.list(tenant, EnvelopeState::PendingApproval).await {
+    let remaining = match state
+        .envelopes
+        .list(tenant, EnvelopeState::PendingApproval)
+        .await
+    {
         Ok(list) => list.into_iter().map(to_envelope_row).collect(),
         Err(_) => Vec::new(),
     };
 
     let template = ApprovalsTemplate {
-        title: ctx.title, tenant: ctx.tenant, current_page: ctx.current_page,
-        flash, csrf: ctx.csrf, envelopes: remaining,
+        title: ctx.title,
+        tenant: ctx.tenant,
+        current_page: ctx.current_page,
+        flash,
+        csrf: ctx.csrf,
+        envelopes: remaining,
     };
-    template.render().map(|html| {
-        (StatusCode::OK, [("content-type", "text/html; charset=utf-8")], html).into_response()
-    }).unwrap_or_else(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-    })
+    template
+        .render()
+        .map(|html| {
+            (
+                StatusCode::OK,
+                [("content-type", "text/html; charset=utf-8")],
+                html,
+            )
+                .into_response()
+        })
+        .unwrap_or_else(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())
 }
 
 pub async fn approvals_count(
@@ -243,7 +332,11 @@ pub async fn approvals_count(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let tenant = routes::tenant_or_default(&headers);
-    let count = match state.envelopes.list(tenant, EnvelopeState::PendingApproval).await {
+    let count = match state
+        .envelopes
+        .list(tenant, EnvelopeState::PendingApproval)
+        .await
+    {
         Ok(list) => list.len(),
         Err(_) => 0,
     };
@@ -270,12 +363,16 @@ fn to_envelope_row(e: governor::ActionEnvelope) -> EnvelopeRow {
             pii_egress: e.blast.pii_egress,
         },
         targets: e.targets.iter().map(|t| t.to_string()).collect(),
-        history: e.history.into_iter().map(|t| TransitionRow {
-            from: format!("{:?}", t.from),
-            to: format!("{:?}", t.to),
-            actor: t.actor,
-            at_rfc3339: t.at_rfc3339,
-        }).collect(),
+        history: e
+            .history
+            .into_iter()
+            .map(|t| TransitionRow {
+                from: format!("{:?}", t.from),
+                to: format!("{:?}", t.to),
+                actor: t.actor,
+                at_rfc3339: t.at_rfc3339,
+            })
+            .collect(),
     }
 }
 

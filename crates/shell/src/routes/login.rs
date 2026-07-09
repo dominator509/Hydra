@@ -31,8 +31,8 @@ struct LoginFormTemplate {
 #[derive(Deserialize)]
 pub struct LoginForm {
     _csrf_token: Option<String>,
-    username: Option<String>,
-    password: Option<String>,
+    _username: Option<String>,
+    _password: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -65,10 +65,7 @@ pub async fn login_page(headers: HeaderMap) -> impl IntoResponse {
     }
 }
 
-pub async fn login_action(
-    headers: HeaderMap,
-    Form(_form): Form<LoginForm>,
-) -> impl IntoResponse {
+pub async fn login_action(_headers: HeaderMap, Form(_form): Form<LoginForm>) -> impl IntoResponse {
     // Only available in dev mode
     if !matches!(env::var("HYDRA_ENV").ok().as_deref(), Some("dev")) {
         let token = CsrfToken::generate();
@@ -107,11 +104,8 @@ pub async fn login_action(
         .into_response()
 }
 
-pub async fn logout_action(
-    headers: HeaderMap,
-    Form(form): Form<LogoutForm>,
-) -> impl IntoResponse {
-    if let Err(_) = routes::verify_csrf(&headers, &form._csrf_token) {
+pub async fn logout_action(headers: HeaderMap, Form(form): Form<LogoutForm>) -> impl IntoResponse {
+    if routes::verify_csrf(&headers, &form._csrf_token).is_err() {
         // Still redirect to login on CSRF failure
         let cookie = routes::clear_session_cookie();
         return (

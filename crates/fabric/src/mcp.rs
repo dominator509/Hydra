@@ -8,8 +8,8 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::services::{
-    AppState as FabricAppState, AutonomyService, BlastRadiusDto, BridgeService,
-    ConciergeService, EnvelopeCreateRequest, EnvelopeService, EntityService, TkStatsService,
+    AppState as FabricAppState, AutonomyService, BlastRadiusDto, BridgeService, ConciergeService,
+    EntityService, EnvelopeCreateRequest, EnvelopeService, TkStatsService,
 };
 
 /// Default dev-mode tenant UUID for MCP requests without _meta.x-hydra-tenant.
@@ -50,7 +50,12 @@ struct JsonRpcErrorBody {
 }
 
 fn rpc_success(id: Option<Value>, result: Value) -> JsonRpcResponse {
-    JsonRpcResponse { jsonrpc: "2.0", id, result: Some(result), error: None }
+    JsonRpcResponse {
+        jsonrpc: "2.0",
+        id,
+        result: Some(result),
+        error: None,
+    }
 }
 
 fn rpc_error(id: Option<Value>, code: i32, message: String) -> JsonRpcResponse {
@@ -58,13 +63,18 @@ fn rpc_error(id: Option<Value>, code: i32, message: String) -> JsonRpcResponse {
         jsonrpc: "2.0",
         id,
         result: None,
-        error: Some(JsonRpcErrorBody { code, message, data: None }),
+        error: Some(JsonRpcErrorBody {
+            code,
+            message,
+            data: None,
+        }),
     }
 }
 
 /// Build an MCP-format content result from a serializable value.
 fn mcp_text_result(value: impl Serialize) -> Value {
-    let text = serde_json::to_string_pretty(&value).unwrap_or_else(|e| format!("serialization error: {e}"));
+    let text = serde_json::to_string_pretty(&value)
+        .unwrap_or_else(|e| format!("serialization error: {e}"));
     json!({ "content": [{ "type": "text", "text": text }] })
 }
 
@@ -257,12 +267,12 @@ impl McpHandler {
         }
     }
 
-    async fn call_list_pending(
-        &self,
-        id: Option<Value>,
-        tenant: Uuid,
-    ) -> JsonRpcResponse {
-        match self.envelopes.list(tenant, EnvelopeState::PendingApproval).await {
+    async fn call_list_pending(&self, id: Option<Value>, tenant: Uuid) -> JsonRpcResponse {
+        match self
+            .envelopes
+            .list(tenant, EnvelopeState::PendingApproval)
+            .await
+        {
             Ok(envelopes) => rpc_success(id, mcp_text_result(&envelopes)),
             Err(e) => rpc_error(id, -32603, format!("list_pending failed: {e}")),
         }
@@ -294,7 +304,11 @@ impl McpHandler {
         tenant: Uuid,
         _arguments: Option<&Value>,
     ) -> JsonRpcResponse {
-        let pending = match self.envelopes.list(tenant, EnvelopeState::PendingApproval).await {
+        let pending = match self
+            .envelopes
+            .list(tenant, EnvelopeState::PendingApproval)
+            .await
+        {
             Ok(e) => e.len(),
             Err(_) => 0,
         };
@@ -315,11 +329,7 @@ impl McpHandler {
         rpc_success(id, mcp_text_result(&stats))
     }
 
-    async fn call_tk_stats(
-        &self,
-        id: Option<Value>,
-        arguments: Option<&Value>,
-    ) -> JsonRpcResponse {
+    async fn call_tk_stats(&self, id: Option<Value>, arguments: Option<&Value>) -> JsonRpcResponse {
         let window = arguments
             .and_then(|a| a.get("window"))
             .and_then(Value::as_str)

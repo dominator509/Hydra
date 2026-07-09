@@ -82,11 +82,8 @@ pub fn set_session_cookie(tenant: Uuid) -> HeaderValue {
 }
 
 pub fn clear_session_cookie() -> HeaderValue {
-    HeaderValue::from_str(&format!(
-        "{}=; Path=/; Max-Age=0; HttpOnly",
-        SESSION_COOKIE
-    ))
-    .expect("clear cookie value should be valid ASCII")
+    HeaderValue::from_str(&format!("{}=; Path=/; Max-Age=0; HttpOnly", SESSION_COOKIE))
+        .expect("clear cookie value should be valid ASCII")
 }
 
 pub fn csrf_cookie_header(token: &CsrfToken) -> HeaderValue {
@@ -98,9 +95,8 @@ pub fn csrf_cookie_header(token: &CsrfToken) -> HeaderValue {
 }
 
 pub fn verify_csrf(headers: &HeaderMap, form_token: &str) -> Result<(), FlashMessage> {
-    let session = session_cookie_value(headers).ok_or_else(|| {
-        FlashMessage::error("no session cookie for CSRF check")
-    })?;
+    let session = session_cookie_value(headers)
+        .ok_or_else(|| FlashMessage::error("no session cookie for CSRF check"))?;
     if session == form_token {
         Ok(())
     } else {

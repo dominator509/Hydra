@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::{Html, IntoResponse, Redirect};
+use axum::response::{IntoResponse, Redirect};
 
 use crate::csrf::CsrfToken;
 use crate::flash::FlashMessage;
