@@ -2,6 +2,8 @@ pub mod auth;
 pub mod egress;
 pub mod error;
 pub mod mcp;
+pub mod middleware;
+pub mod rate;
 pub mod rest;
 pub mod services;
 

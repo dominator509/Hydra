@@ -805,6 +805,7 @@ pub fn tenant_from_headers(headers: &HeaderMap) -> Result<Uuid, FabricError> {
         .map_err(|error| FabricError::ValidationFailed(format!("invalid tenant uuid: {error}")))
 }
 
+#[allow(dead_code)]
 pub fn dev_admin_actor_from_headers(headers: &HeaderMap) -> Result<&'static str, FabricError> {
     if !matches!(env::var("HYDRA_ENV").ok().as_deref(), Some("dev")) {
         return Err(FabricError::AuthzDenied);

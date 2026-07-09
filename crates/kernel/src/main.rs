@@ -19,6 +19,7 @@ use sqlx::PgPool;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
+use fabric::{middleware::security_headers, rate::rate_limit_middleware};
 use crate::config::{Config, ConfigError};
 
 #[derive(Debug, thiserror::Error)]
@@ -137,6 +138,11 @@ async fn run() -> Result<(), KernelError> {
         .merge(fabric_router)
         .merge(shell_router)
         .merge(static_router);
+
+    // Apply security middleware layers (outermost first).
+    let app = app
+        .layer(axum::middleware::from_fn(security_headers))
+        .layer(axum::middleware::from_fn(rate_limit_middleware));
 
     let listener = tokio::net::TcpListener::bind(config.bind)
         .await

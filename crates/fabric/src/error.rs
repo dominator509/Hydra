@@ -32,6 +32,7 @@ pub enum FabricError {
     #[error("validation_failed: {0}")]
     ValidationFailed(String),
     #[error("authn_failed: {0}")]
+    #[allow(dead_code)]
     AuthnFailed(String),
     #[error("not_found")]
     NotFound,
