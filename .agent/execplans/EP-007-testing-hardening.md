@@ -38,7 +38,7 @@ verify ×3 green; nightly file present; regression names `regress_*` ≥ 5; diff
 Fixtures deterministic (seeded); canary diff pure.
 
 ## 12. Progress
-- [ ] M1 - [ ] M2 - [ ] M3 - [ ] M4 - [ ] M5
+- [x] M1 - [x] M2 - [x] M3 - [x] M4 - [x] M5
 
 ## 13. Surprises & Discoveries
 ## 14. Decision Log

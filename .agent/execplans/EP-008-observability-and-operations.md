@@ -38,7 +38,7 @@ verify.sh green; smoke asserts 6 metric series; alerts/dashboards parse; backup+
 Backup script timestamped (safe rerun); restore targets scratch DB; metric registration idempotent (describe once in registry init). Resume = rerun failing milestone validation.
 
 ## 12. Progress
-- [ ] M1 - [ ] M2 - [ ] M3 - [ ] M4 - [ ] M5
+- [x] M1 - [x] M2 - [x] M3 - [x] M4 - [x] M5
 
 ## 13. Surprises & Discoveries
 ## 14. Decision Log

@@ -38,7 +38,7 @@ verify.sh green; docker build ok; compose smoke ok + egress isolation ok; migrat
 Builds cached; compose up idempotent; deploy script re-runnable (pull+up -d); resume = rerun milestone validation.
 
 ## 12. Progress
-- [ ] M1 - [ ] M2 - [ ] M3 - [ ] M4 - [ ] M5
+- [x] M1 - [x] M2 - [x] M3 - [x] M4 - [x] M5
 
 ## 13. Surprises & Discoveries
 ## 14. Decision Log
