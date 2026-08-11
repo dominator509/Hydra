@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Read};
 use std::net::SocketAddr;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
@@ -30,8 +30,8 @@ async fn smoke_healthz() -> Result<(), Box<dyn std::error::Error>> {
         .env("HYDRA_ENV", "dev")
         .env("TK_HIT_RATIO_TARGET", "0.97")
         .env("TK_OUTPUT_BUDGET_BYTES", "16384")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()?;
 
     let healthz = wait_for_endpoint(addr, "/healthz", &mut child).await;
@@ -92,8 +92,18 @@ async fn wait_for_endpoint(
     // deterministic by allowing a modest 12s startup window.
     for _ in 0..HEALTHZ_WAIT_ATTEMPTS {
         if let Some(status) = child.try_wait()? {
+            let mut stdout = String::new();
+            if let Some(mut pipe) = child.stdout.take() {
+                pipe.read_to_string(&mut stdout)?;
+            }
+            let mut stderr = String::new();
+            if let Some(mut pipe) = child.stderr.take() {
+                pipe.read_to_string(&mut stderr)?;
+            }
             return Err(io::Error::other(format!(
-                "hydra-kernel exited before {path} was reachable: {status}"
+                "hydra-kernel exited before {path} was reachable: {status}; stdout: {}; stderr: {}",
+                stdout.trim(),
+                stderr.trim()
             ))
             .into());
         }

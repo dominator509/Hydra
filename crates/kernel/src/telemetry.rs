@@ -21,12 +21,9 @@ const REDACTED: &[&str] = &["password", "secret", "token", "api_key", "prompt", 
 /// Composes `JsonRedactLayer` (redaction + JSON output) with an `EnvFilter`
 /// layer so that log level can be controlled via `RUST_LOG`.
 pub fn init_telemetry() {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
-    let subscriber = Registry::default()
-        .with(JsonRedactLayer)
-        .with(env_filter);
+    let subscriber = Registry::default().with(JsonRedactLayer).with(env_filter);
 
     tracing::subscriber::set_global_default(subscriber)
         .expect("global tracing subscriber is already set");
@@ -41,18 +38,12 @@ pub fn init_telemetry() {
 /// Called by `JsonRedactLayer::on_event` (with stdout) and by tests (with a
 /// `Vec<u8>` buffer).  This is the single function that defines the redaction
 /// behaviour.
-fn write_redacted_event(
-    event: &tracing::Event<'_>,
-    writer: &mut dyn Write,
-) -> std::io::Result<()> {
+fn write_redacted_event(event: &tracing::Event<'_>, writer: &mut dyn Write) -> std::io::Result<()> {
     let meta = event.metadata();
 
     let mut fields = serde_json::Map::new();
 
-    fields.insert(
-        "ts".into(),
-        serde_json::Value::String(iso_timestamp()),
-    );
+    fields.insert("ts".into(), serde_json::Value::String(iso_timestamp()));
     fields.insert(
         "level".into(),
         serde_json::Value::String(format_level(meta.level()).to_string()),
@@ -113,13 +104,17 @@ impl tracing::field::Visit for FieldCollector<'_> {
     }
 
     fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.0
-            .insert(field.name().to_string(), serde_json::Value::Number(value.into()));
+        self.0.insert(
+            field.name().to_string(),
+            serde_json::Value::Number(value.into()),
+        );
     }
 
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.0
-            .insert(field.name().to_string(), serde_json::Value::Number(value.into()));
+        self.0.insert(
+            field.name().to_string(),
+            serde_json::Value::Number(value.into()),
+        );
     }
 
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
@@ -156,12 +151,12 @@ fn iso_timestamp() -> String {
 }
 
 fn format_level(level: &tracing::metadata::Level) -> &'static str {
-    match level {
-        &tracing::Level::ERROR => "ERROR",
-        &tracing::Level::WARN => "WARN",
-        &tracing::Level::INFO => "INFO",
-        &tracing::Level::DEBUG => "DEBUG",
-        &tracing::Level::TRACE => "TRACE",
+    match *level {
+        tracing::Level::ERROR => "ERROR",
+        tracing::Level::WARN => "WARN",
+        tracing::Level::INFO => "INFO",
+        tracing::Level::DEBUG => "DEBUG",
+        tracing::Level::TRACE => "TRACE",
     }
 }
 
@@ -186,7 +181,10 @@ mod tests {
             let mut buf: Vec<u8> = Vec::new();
             if write_redacted_event(event, &mut buf).is_ok() {
                 if let Ok(s) = String::from_utf8(buf) {
-                    self.0.lock().unwrap().push(s);
+                    self.0
+                        .lock()
+                        .expect("captured log lock should not be poisoned")
+                        .push(s);
                 }
             }
         }
@@ -197,10 +195,7 @@ mod tests {
     fn test_subscriber(captured: Arc<Mutex<Vec<String>>>) -> impl tracing::Subscriber {
         Registry::default()
             .with(CaptureLayer(captured))
-            .with(
-                EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| EnvFilter::new("info")),
-            )
+            .with(EnvFilter::new("trace"))
     }
 
     #[test]
@@ -211,7 +206,9 @@ mod tests {
 
         tracing::info!(secret = "s3cret-value!", "test log");
 
-        let lines = captured.lock().unwrap();
+        let lines = captured
+            .lock()
+            .expect("captured log lock should not be poisoned");
         let json = lines.join("\n");
 
         assert!(
@@ -232,7 +229,9 @@ mod tests {
 
         tracing::info!(password = "hunter2", "login attempt");
 
-        let lines = captured.lock().unwrap();
+        let lines = captured
+            .lock()
+            .expect("captured log lock should not be poisoned");
         let json = lines.join("\n");
 
         assert!(!json.contains("hunter2"), "password leaked:\n{json}");
@@ -247,7 +246,9 @@ mod tests {
 
         tracing::info!(prefix_sha = "abc123def456", "segment check");
 
-        let lines = captured.lock().unwrap();
+        let lines = captured
+            .lock()
+            .expect("captured log lock should not be poisoned");
         let json = lines.join("\n");
 
         assert!(
@@ -264,7 +265,9 @@ mod tests {
 
         tracing::info!(tail_sha = "xyz789", "segment tail check");
 
-        let lines = captured.lock().unwrap();
+        let lines = captured
+            .lock()
+            .expect("captured log lock should not be poisoned");
         let json = lines.join("\n");
 
         assert!(
@@ -281,7 +284,9 @@ mod tests {
 
         tracing::warn!(token = "eyJhbGciOiJIUzI1NiJ9", "auth attempt");
 
-        let lines = captured.lock().unwrap();
+        let lines = captured
+            .lock()
+            .expect("captured log lock should not be poisoned");
         let json = lines.join("\n");
 
         assert!(
@@ -299,7 +304,9 @@ mod tests {
 
         tracing::info!(api_key = "sk-abcdef123456", "llm call");
 
-        let lines = captured.lock().unwrap();
+        let lines = captured
+            .lock()
+            .expect("captured log lock should not be poisoned");
         let json = lines.join("\n");
 
         assert!(!json.contains("sk-abcdef123456"), "api_key leaked:\n{json}");
@@ -314,7 +321,9 @@ mod tests {
 
         tracing::info!(prompt = "What is the meaning of life?", "user prompt");
 
-        let lines = captured.lock().unwrap();
+        let lines = captured
+            .lock()
+            .expect("captured log lock should not be poisoned");
         let json = lines.join("\n");
 
         assert!(
@@ -332,7 +341,9 @@ mod tests {
 
         tracing::info!(tail = "sensitive-suffix", "segment tail");
 
-        let lines = captured.lock().unwrap();
+        let lines = captured
+            .lock()
+            .expect("captured log lock should not be poisoned");
         let json = lines.join("\n");
 
         assert!(!json.contains("sensitive-suffix"), "tail leaked:\n{json}");

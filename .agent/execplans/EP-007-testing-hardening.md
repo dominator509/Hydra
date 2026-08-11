@@ -43,3 +43,6 @@ Fixtures deterministic (seeded); canary diff pure.
 ## 13. Surprises & Discoveries
 ## 14. Decision Log
 ## 15. Outcomes & Retrospective
+
+## Post-Implementation Reality Check (2026-08-10)
+The checked M1-M5 status has no recorded Outcomes evidence and is not currently substantiated. `scripts/test-integration.sh` masks selected conformance failures with `|| true`; `.github/workflows/nightly.yml` makes verify/cache checks non-gating and masks ignored conformance; `scripts/test-e2e.sh` succeeds with no E2E tests. BridgeEngineer intentionally stops at `SynthesisNotImplemented`, DataSteward merge returns a direct entity, and Comms only drafts strings. EP-013 owns capability truth; EP-015 owns unmasked gates and executable E2E evidence.

@@ -1,0 +1,16 @@
+.git
+target
+.env
+.env.*
+!.env.example
+.codex
+.agents
+.obsidian
+.serena/cache
+.serena/logs
+.serena/memories
+.serena/project.local.yml
+.tmp
+*.log
+*.profraw
+*.profdata

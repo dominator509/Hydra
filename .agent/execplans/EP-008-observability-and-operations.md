@@ -44,3 +44,6 @@ Backup script timestamped (safe rerun); restore targets scratch DB; metric regis
 ## 14. Decision Log
 (metrics/metrics-exporter-prometheus dependency addition goes here + DECISIONS.md)
 ## 15. Outcomes & Retrospective
+
+## Post-Implementation Reality Check (2026-08-10)
+Logging, metric-surface files, alerts, dashboards, and backup/restore scripts exist, but the checked M1-M5 status has no Outcomes evidence and the advertised runtime is incomplete. Metric hooks are not proven across all named boundaries, Compose does not include the monitoring services described in this plan, and readiness does not cover event-stream/relay health. EP-014 owns event tracing/readiness; EP-015 owns deploy-profile and gate validation.

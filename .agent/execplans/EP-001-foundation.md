@@ -60,3 +60,6 @@ cargo/compose idempotent; resume: run verify.sh, first failing gate = resume poi
 - The workspace now exists with 11 crates, a real `hydra-kernel` binary serving `/healthz`, pinned toolchain/dependency-audit config, CI wiring, compose scaffolding, `.env.example`, db-setup stub, and the minimal shell static placeholder tree.
 - Acceptance proof beyond `verify.sh`: a brief local `cargo run -p hydra-kernel` with `RUST_LOG=info` emitted `hydra: listening on 127.0.0.1:<port>`, matching the command/docs contract.
 - Remaining risks handed to later plans: no real e2e tests yet (temporary EP-005 allowance), no TOKENKILLER replay corpus yet (audit intentionally gated until EP-004), and `deny.toml` still prints harmless unmatched-license warnings for currently unused allowances.
+
+## Post-Implementation Reality Check (2026-08-10)
+Historical EP-001 evidence is preserved above. The temporary no-E2E allowance expired at EP-005 but remains in `scripts/test-e2e.sh`, which currently prints success when no `fn e2e_` exists. A fresh `bash scripts/verify.sh` also failed in `lint.sh` on denied test lints before later gates ran. Current gate remediation is owned by EP-011 (baseline lint) and EP-015 (real E2E and truthful required gates); see `.agent/state/execplan-index.md`.

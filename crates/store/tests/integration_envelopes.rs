@@ -176,6 +176,7 @@ fn envelope(tenant: Uuid) -> ActionEnvelope {
         rationale: "integration test".to_owned(),
         reversal: Reversal::Compensating,
         blast: BlastRadius::default(),
+        invocation: governor::InvocationContext::default(),
         state: EnvelopeState::Proposed,
         history: Vec::new(),
     }

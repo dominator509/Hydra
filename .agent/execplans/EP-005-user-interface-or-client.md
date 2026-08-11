@@ -52,3 +52,6 @@ Templates hot-recompilable; e2e tests seed+teardown their tenant schema.
 - 2026-07-08 - Implemented all 4 UI milestones (M1-M4) in a single pass rather than sequentially, because the route handlers all consume the same `fabric::AppState` and templates all extend the same `layout.html`. M5 (degradation + a11y pass) remains for a focused polish pass with JS-off e2e tests.
 - 2026-07-08 - E2E tests deferred until Docker/Postgres services are available. The shell crate compiles with all routes and templates, and the kernel is wired, but browser-driven tests require a running instance with database seeding.
 ## 15. Outcomes & Retrospective
+
+## Post-Implementation Reality Check (2026-08-10)
+M5 remains unexecuted exactly as Progress records. No required `e2e_` function exists, and `scripts/test-e2e.sh` currently warns but still prints `e2e tests: ok`; therefore JS-off, accessibility, and browser behavior are not verified. EP-015 owns the real E2E gate and will not relabel absent tests as passed.

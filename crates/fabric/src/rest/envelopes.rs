@@ -1,13 +1,12 @@
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::Json;
 use governor::EnvelopeState;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::auth::{AuthCtx, Role};
 use crate::error::FabricError;
-use crate::services::{
-    auth_ctx_from_headers, tenant_from_headers, AppState, EnvelopeCreateRequest,
-};
+use crate::services::{tenant_from_headers, AppState, EnvelopeCreateRequest};
 
 #[derive(Debug, Deserialize)]
 pub struct EnvelopeListQuery {
@@ -27,9 +26,11 @@ pub async fn list_envelopes(
 
 pub async fn propose_envelope(
     State(state): State<AppState>,
+    Extension(ctx): Extension<AuthCtx>,
     headers: axum::http::HeaderMap,
     Json(request): Json<EnvelopeCreateRequest>,
 ) -> Result<Json<governor::ActionEnvelope>, FabricError> {
+    ctx.require_role(Role::Operator)?;
     let tenant = tenant_from_headers(&headers)?;
     let envelope = state.envelopes.propose(tenant, request).await?;
     Ok(Json(envelope))
@@ -37,22 +38,22 @@ pub async fn propose_envelope(
 
 pub async fn approve_envelope(
     State(state): State<AppState>,
+    Extension(ctx): Extension<AuthCtx>,
     headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<governor::ActionEnvelope>, FabricError> {
     let tenant = tenant_from_headers(&headers)?;
-    let ctx = auth_ctx_from_headers(&headers);
     let envelope = state.envelopes.approve(&ctx, tenant, id).await?;
     Ok(Json(envelope))
 }
 
 pub async fn reject_envelope(
     State(state): State<AppState>,
+    Extension(ctx): Extension<AuthCtx>,
     headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<governor::ActionEnvelope>, FabricError> {
     let tenant = tenant_from_headers(&headers)?;
-    let ctx = auth_ctx_from_headers(&headers);
     let envelope = state.envelopes.reject(&ctx, tenant, id).await?;
     Ok(Json(envelope))
 }

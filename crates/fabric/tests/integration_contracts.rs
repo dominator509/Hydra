@@ -51,9 +51,18 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
                 vec!["concierge".into()],
             )),
             Arc::new(ConciergeServiceImpl),
-        );
+        )
+        .with_development_identity(true);
         let addr = spawn_app(app(state)).await?;
-        let client = reqwest::Client::new();
+        let mut default_headers = reqwest::header::HeaderMap::new();
+        default_headers.insert(
+            reqwest::header::AUTHORIZATION,
+            reqwest::header::HeaderValue::from_static("Bearer hydra-dev-admin"),
+        );
+        let client = reqwest::Client::builder()
+            .default_headers(default_headers)
+            .build()?;
+        let anonymous_client = reqwest::Client::new();
         let tenant_header = tenant.to_string();
 
         let openapi = client
@@ -74,6 +83,12 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
         assert!(openapi["paths"]["/v1/entities/{kind}/{id}"].is_object());
         assert!(openapi["paths"]["/v1/envelopes"].is_object());
         assert!(openapi["paths"]["/v1/tk/ledger"].is_object());
+        assert!(openapi["paths"]["/v1/nexus/capabilities"].is_object());
+        assert!(openapi["paths"]["/v1/nexus/context"].is_object());
+        assert_eq!(
+            openapi["x-hydra-capabilities"].as_array().map(Vec::len),
+            Some(9)
+        );
 
         let ping = client
             .post(format!("http://{addr}/v1/concierge/ping"))
@@ -103,7 +118,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
             .await?;
         assert!(empty_cells.is_empty());
 
-        let forbidden = client
+        let forbidden = anonymous_client
             .put(format!("http://{addr}/v1/autonomy/cells"))
             .header("x-hydra-tenant", &tenant_header)
             .json(&vec![AutonomyCellDto {
@@ -191,7 +206,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
         .fetch_one(&db.pool)
         .await?;
         assert_eq!(autonomy_event.kind, "autonomy.cells.updated");
-        assert_eq!(autonomy_event.actor, "dev-admin");
+        assert_eq!(autonomy_event.actor, "user:admin");
         assert_eq!(
             autonomy_event
                 .payload
@@ -202,7 +217,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
             Some(2)
         );
 
-        let forbidden_bridge = client
+        let forbidden_bridge = anonymous_client
             .post(format!("http://{addr}/v1/bridges"))
             .header("x-hydra-tenant", &tenant_header)
             .json(&BridgeRegisterRequest {
@@ -425,6 +440,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
                 proposed.id
             ))
             .header("x-hydra-tenant", &tenant_header)
+            .header("Authorization", "Bearer hydra-dev-admin")
             .send()
             .await?
             .error_for_status()?
@@ -434,6 +450,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
 
         let tk = client
             .get(format!("http://{addr}/v1/tk/ledger?window=1h"))
+            .header("x-hydra-tenant", &tenant_header)
             .send()
             .await?
             .error_for_status()?
@@ -453,9 +470,9 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
         let tools = mcp["tools"]
             .as_array()
             .expect("mcp tool schema should expose a tool list");
-        assert_eq!(tools.len(), 7);
-        assert_eq!(tools[0]["name"], "hydra.search_entities");
-        assert_eq!(tools[6]["name"], "hydra.tk_stats");
+        assert_eq!(tools.len(), 9);
+        assert_eq!(tools[0]["name"], "hydra.capabilities.list");
+        assert_eq!(tools[8]["name"], "hydra.envelopes.list");
 
         Ok::<(), Box<dyn std::error::Error>>(())
     }

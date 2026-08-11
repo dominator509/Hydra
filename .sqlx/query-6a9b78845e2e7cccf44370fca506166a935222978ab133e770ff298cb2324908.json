@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE outbox\n            SET published_at = now(),\n                jetstream_sequence = $3,\n                last_error = NULL,\n                claim_token = NULL,\n                claimed_at = NULL\n            WHERE id = $1\n              AND claim_token = $2\n              AND published_at IS NULL\n              AND parked_at IS NULL\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6a9b78845e2e7cccf44370fca506166a935222978ab133e770ff298cb2324908"
+}

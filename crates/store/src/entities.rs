@@ -1,10 +1,13 @@
-use cdm::{Entity, KindRegistry};
-use serde_json::{json, Value};
+use cdm::{
+    Entity, EventDataClass, EventEntityRef, HydraEventEnvelope, HydraEventPayload, HydraEventType,
+    KindRegistry,
+};
+use serde_json::Value;
 use sqlx::types::Json;
-use sqlx::{PgPool, Transaction};
+use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::{events::EventsRepo, StoreError};
+use crate::{events::canonical_now, events::EventsRepo, EventProvenance, StoreError};
 
 #[derive(Clone)]
 pub struct EntitiesRepo {
@@ -27,6 +30,21 @@ impl EntitiesRepo {
     }
 
     pub async fn upsert(&self, tenant: Uuid, entity: Entity) -> Result<Entity, StoreError> {
+        let provenance = if entity.origin.starts_with("bridge:") {
+            EventProvenance::bridge(entity.origin.clone())
+        } else {
+            EventProvenance::hydra_system("store.entities")
+        };
+        self.upsert_with_provenance(tenant, entity, provenance)
+            .await
+    }
+
+    pub async fn upsert_with_provenance(
+        &self,
+        tenant: Uuid,
+        entity: Entity,
+        provenance: EventProvenance,
+    ) -> Result<Entity, StoreError> {
         if entity.tenant != tenant {
             return Err(StoreError::TenantMismatch);
         }
@@ -53,6 +71,7 @@ impl EntitiesRepo {
         .fetch_optional(&mut *tx)
         .await?;
 
+        let is_created = existing.is_none();
         let stored = match existing {
             Some(row) => {
                 let current_version = as_u64(row.version)?;
@@ -126,23 +145,32 @@ impl EntitiesRepo {
             }
         };
 
-        let event_payload = json!({
-            "entity_id": stored.id,
-            "kind": stored.kind,
-            "tenant_id": tenant,
-            "version": stored.version,
-            "origin": stored.origin,
-            "origin_ref": stored.origin_ref,
-        });
-        EventsRepo::append(
-            &mut tx,
+        let event_type = if is_created {
+            HydraEventType::EntityCreated
+        } else {
+            HydraEventType::EntityUpdated
+        };
+        let mut event = HydraEventEnvelope::new(
+            Uuid::new_v4(),
+            event_type,
+            canonical_now()?,
             tenant,
-            "store.entities",
-            "entity.upsert",
-            &event_payload,
-        )
-        .await?;
-        insert_outbox(&mut tx, &event_payload).await?;
+            provenance.actor.clone(),
+            EventDataClass::Private,
+            HydraEventPayload::EntityChange {
+                operation: if is_created { "created" } else { "updated" }.to_owned(),
+                version: stored.version,
+            },
+        );
+        event.entity = Some(EventEntityRef {
+            entity_id: stored.id,
+            kind: stored.kind.clone(),
+            origin: stored.origin.clone(),
+            origin_ref: stored.origin_ref.clone(),
+        });
+        provenance.apply(&mut event);
+        EventsRepo::append_canonical_with_trace(&mut tx, &event, provenance.trace_context.as_ref())
+            .await?;
 
         tx.commit().await?;
         Ok(stored)
@@ -215,6 +243,20 @@ impl EntitiesRepo {
     }
 
     pub async fn soft_delete(&self, tenant: Uuid, id: Uuid) -> Result<(), StoreError> {
+        self.soft_delete_with_provenance(
+            tenant,
+            id,
+            EventProvenance::hydra_system("store.entities"),
+        )
+        .await
+    }
+
+    pub async fn soft_delete_with_provenance(
+        &self,
+        tenant: Uuid,
+        id: Uuid,
+        provenance: EventProvenance,
+    ) -> Result<(), StoreError> {
         let mut tx = self.pool.begin().await?;
 
         let row = sqlx::query!(
@@ -226,7 +268,7 @@ impl EntitiesRepo {
             WHERE tenant_id = $1
               AND id = $2
               AND deleted_at IS NULL
-            RETURNING version
+            RETURNING kind, origin, origin_ref, version
             "#,
             tenant,
             id
@@ -238,41 +280,32 @@ impl EntitiesRepo {
             return Err(StoreError::NotFound);
         };
 
-        let event_payload = json!({
-            "entity_id": id,
-            "tenant_id": tenant,
-            "version": as_u64(row.version)?,
-            "deleted": true,
-        });
-        EventsRepo::append(
-            &mut tx,
+        let version = as_u64(row.version)?;
+        let mut event = HydraEventEnvelope::new(
+            Uuid::new_v4(),
+            HydraEventType::EntityDeleted,
+            canonical_now()?,
             tenant,
-            "store.entities",
-            "entity.soft_delete",
-            &event_payload,
-        )
-        .await?;
-        insert_outbox(&mut tx, &event_payload).await?;
+            provenance.actor.clone(),
+            EventDataClass::Private,
+            HydraEventPayload::EntityChange {
+                operation: "deleted".to_owned(),
+                version,
+            },
+        );
+        event.entity = Some(EventEntityRef {
+            entity_id: id,
+            kind: row.kind,
+            origin: row.origin,
+            origin_ref: row.origin_ref,
+        });
+        provenance.apply(&mut event);
+        EventsRepo::append_canonical_with_trace(&mut tx, &event, provenance.trace_context.as_ref())
+            .await?;
 
         tx.commit().await?;
         Ok(())
     }
-}
-
-async fn insert_outbox(
-    tx: &mut Transaction<'_, sqlx::Postgres>,
-    event: &Value,
-) -> Result<(), StoreError> {
-    sqlx::query!(
-        r#"
-        INSERT INTO outbox (event)
-        VALUES ($1)
-        "#,
-        event.clone()
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
 }
 
 fn as_u64(value: i64) -> Result<u64, StoreError> {

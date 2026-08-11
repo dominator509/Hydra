@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 use sqlx::types::Json;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{events::EventsRepo, StoreError};
@@ -11,6 +11,10 @@ struct AutonomyCellRow {
     kind: Option<String>,
     level: String,
     cfg: Json<Value>,
+}
+
+struct PolicyRevisionRow {
+    revision: i64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -133,8 +137,6 @@ impl AutonomyRepo {
                 .collect::<Vec<_>>()
         });
         EventsRepo::append(&mut tx, tenant, actor, "autonomy.cells.updated", &payload).await?;
-        insert_outbox(&mut tx, &payload).await?;
-
         tx.commit().await?;
         Ok(cells.to_vec())
     }
@@ -170,22 +172,28 @@ impl AutonomyRepo {
 
         Ok(matrix)
     }
-}
 
-async fn insert_outbox(
-    tx: &mut Transaction<'_, Postgres>,
-    event: &Value,
-) -> Result<(), StoreError> {
-    sqlx::query!(
-        r#"
-        INSERT INTO outbox (event)
-        VALUES ($1)
-        "#,
-        event.clone()
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
+    pub async fn revision(&self, tenant: Uuid) -> Result<u64, StoreError> {
+        let row = sqlx::query_as!(
+            PolicyRevisionRow,
+            r#"
+            SELECT revision
+            FROM autonomy_policy_revision
+            WHERE tenant_id = $1
+            "#,
+            tenant,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some(row) => u64::try_from(row.revision).map_err(|_| {
+                StoreError::Invariant(format!(
+                    "negative autonomy policy revision for tenant {tenant}"
+                ))
+            }),
+            None => Ok(0),
+        }
+    }
 }
 
 fn row_to_cell(row: AutonomyCellRow) -> Result<StoredAutonomyCell, StoreError> {

@@ -71,8 +71,7 @@ pub async fn login_action(
     Form(form): Form<LoginForm>,
 ) -> impl IntoResponse {
     // Verify CSRF by checking the form token against the hydra-csrf cookie.
-    if let Err(_msg) = routes::verify_csrf_cookie(&headers, &form.csrf_token.unwrap_or_default())
-    {
+    if let Err(_msg) = routes::verify_csrf_cookie(&headers, &form.csrf_token.unwrap_or_default()) {
         let token = CsrfToken::generate();
         let template = LoginFormTemplate {
             csrf_field: token.hidden_field(),
@@ -126,9 +125,7 @@ pub async fn login_action(
                     html,
                 )
                     .into_response(),
-                Err(e) => {
-                    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-                }
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
             }
         }
     }

@@ -1,0 +1,69 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO idempotency_record (\n                tenant_id,\n                origin_system,\n                idempotency_key,\n                capability,\n                request_hash,\n                envelope_id\n            )\n            VALUES ($1, $2, $3, $4, $5, $6)\n            ON CONFLICT (tenant_id, origin_system, idempotency_key, capability)\n            DO NOTHING\n            RETURNING\n                id,\n                tenant_id,\n                origin_system,\n                idempotency_key,\n                capability,\n                request_hash,\n                envelope_id,\n                created_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "origin_system",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "idempotency_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "capability",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "request_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "envelope_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3f482bdd5f9446cba787c3432a7669f799e97961a0886a04ebbaa15407caf31a"
+}

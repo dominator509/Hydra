@@ -1,20 +1,62 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::Value;
-use sqlx::types::Json;
-use sqlx::PgPool;
+use store::{OutboxFailureDisposition, OutboxRepo};
 use tokio::sync::watch;
 use tracing::warn;
 
+use crate::event_stream::{EventPublishRequest, EventPublisher};
+
 const OUTBOX_BATCH_SIZE: i64 = 100;
+const OUTBOX_LEASE_TIMEOUT: Duration = Duration::from_secs(30);
 const RELAY_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-struct OutboxRow {
-    id: i64,
-    event: Json<Value>,
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RelayIteration {
+    pub claimed: usize,
+    pub published: usize,
+    pub retried: usize,
+    pub parked: usize,
 }
 
-pub async fn run(mut shutdown: watch::Receiver<bool>, pool: PgPool, nats: async_nats::Client) {
+#[derive(Debug, Clone, Default)]
+pub struct RelayHealth {
+    running: Arc<AtomicBool>,
+    operational: Arc<AtomicBool>,
+}
+
+impl RelayHealth {
+    pub fn running(&self) -> bool {
+        self.running.load(Ordering::Acquire)
+    }
+
+    pub fn operational(&self) -> bool {
+        self.operational.load(Ordering::Acquire)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RelayError {
+    #[error("outbox persistence failed: {0}")]
+    Store(#[from] store::StoreError),
+}
+
+pub async fn run(
+    shutdown: watch::Receiver<bool>,
+    outbox: OutboxRepo,
+    publisher: Arc<dyn EventPublisher>,
+) {
+    run_with_health(shutdown, outbox, publisher, RelayHealth::default()).await;
+}
+
+pub async fn run_with_health(
+    mut shutdown: watch::Receiver<bool>,
+    outbox: OutboxRepo,
+    publisher: Arc<dyn EventPublisher>,
+    health: RelayHealth,
+) {
+    health.running.store(true, Ordering::Release);
     let mut interval = tokio::time::interval(RELAY_POLL_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -26,69 +68,92 @@ pub async fn run(mut shutdown: watch::Receiver<bool>, pool: PgPool, nats: async_
                 }
             }
             _ = interval.tick() => {
-                if let Err(error) = publish_once(&pool, &nats).await {
-                    warn!(error = %error, "outbox relay iteration failed");
+                match publish_once(
+                    &outbox,
+                    publisher.as_ref(),
+                    OUTBOX_BATCH_SIZE,
+                    OUTBOX_LEASE_TIMEOUT,
+                ).await {
+                    Ok(iteration) if iteration.retried > 0 || iteration.parked > 0 => {
+                        health.operational.store(true, Ordering::Release);
+                        warn!(
+                            retried = iteration.retried,
+                            parked = iteration.parked,
+                            "outbox relay completed with deferred events"
+                        );
+                    }
+                    Ok(_) => health.operational.store(true, Ordering::Release),
+                    Err(error) => {
+                        health.operational.store(false, Ordering::Release);
+                        warn!(error = %error, "outbox relay iteration failed");
+                    }
                 }
             }
         }
     }
+    health.running.store(false, Ordering::Release);
+    health.operational.store(false, Ordering::Release);
 }
 
-async fn publish_once(pool: &PgPool, nats: &async_nats::Client) -> Result<(), String> {
-    let mut tx = pool.begin().await.map_err(|error| error.to_string())?;
-    let rows = sqlx::query_as!(
-        OutboxRow,
-        r#"
-        SELECT
-            id,
-            event as "event!: Json<Value>"
-        FROM outbox
-        WHERE published_at IS NULL
-        ORDER BY id
-        LIMIT $1
-        FOR UPDATE SKIP LOCKED
-        "#,
-        OUTBOX_BATCH_SIZE
-    )
-    .fetch_all(&mut *tx)
-    .await
-    .map_err(|error| error.to_string())?;
+pub async fn publish_once(
+    outbox: &OutboxRepo,
+    publisher: &dyn EventPublisher,
+    batch_size: i64,
+    lease_timeout: Duration,
+) -> Result<RelayIteration, RelayError> {
+    let batch = outbox.claim_pending(batch_size, lease_timeout).await?;
+    let mut iteration = RelayIteration {
+        claimed: batch.records.len(),
+        parked: batch.parked_count,
+        ..RelayIteration::default()
+    };
 
-    if rows.is_empty() {
-        tx.rollback().await.map_err(|error| error.to_string())?;
-        return Ok(());
+    for record in batch.records {
+        let claim_token = record
+            .claim_token
+            .ok_or(store::StoreError::OutboxClaimLost)?;
+        let payload = match serde_json::to_vec(&record.event) {
+            Ok(payload) => payload,
+            Err(_) => {
+                outbox
+                    .record_failure(
+                        record.id,
+                        claim_token,
+                        "canonical_event_serialization_failed",
+                        OutboxFailureDisposition::Park,
+                    )
+                    .await?;
+                iteration.parked += 1;
+                continue;
+            }
+        };
+        let request = EventPublishRequest {
+            event_id: record.event_id,
+            subject: record.subject,
+            payload,
+            trace_context: record.trace_context,
+        };
+        match publisher.publish(request).await {
+            Ok(acknowledgement) => {
+                outbox
+                    .mark_published(record.id, claim_token, acknowledgement.sequence)
+                    .await?;
+                iteration.published += 1;
+            }
+            Err(error) => {
+                outbox
+                    .record_failure(
+                        record.id,
+                        claim_token,
+                        "jetstream_publish_failed",
+                        OutboxFailureDisposition::Retry,
+                    )
+                    .await?;
+                iteration.retried += 1;
+                warn!(event_id = %record.event_id, error = %error, "JetStream publish deferred");
+            }
+        }
     }
 
-    for row in &rows {
-        let tenant_id = row
-            .event
-            .0
-            .get("tenant_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("outbox row {} missing tenant_id", row.id))?;
-        let payload = serde_json::to_vec(&row.event.0).map_err(|error| error.to_string())?;
-        let subject = format!("hydra.events.{tenant_id}");
-        nats.publish(subject, payload.into())
-            .await
-            .map_err(|error| error.to_string())?;
-    }
-
-    nats.flush().await.map_err(|error| error.to_string())?;
-
-    for row in rows {
-        sqlx::query!(
-            r#"
-            UPDATE outbox
-            SET published_at = now()
-            WHERE id = $1
-            "#,
-            row.id
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| error.to_string())?;
-    }
-
-    tx.commit().await.map_err(|error| error.to_string())?;
-    Ok(())
+    Ok(iteration)
 }

@@ -1,10 +1,11 @@
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::{header::IF_MATCH, HeaderMap};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::auth::{AuthCtx, Role};
 use crate::error::FabricError;
 use crate::services::{tenant_from_headers, AppState, EntityDeleteResponse};
 
@@ -31,10 +32,12 @@ pub async fn list_entities(
 
 pub async fn create_entity(
     State(state): State<AppState>,
+    Extension(ctx): Extension<AuthCtx>,
     Path(kind): Path<String>,
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<cdm::Entity>, FabricError> {
+    ctx.require_role(Role::Operator)?;
     let tenant = tenant_from_headers(&headers)?;
     let entity = state.entities.create(tenant, &kind, body).await?;
     Ok(Json(entity))
@@ -52,10 +55,12 @@ pub async fn get_entity(
 
 pub async fn patch_entity(
     State(state): State<AppState>,
+    Extension(ctx): Extension<AuthCtx>,
     Path((kind, id)): Path<(String, Uuid)>,
     headers: HeaderMap,
     Json(patch): Json<Value>,
 ) -> Result<Json<cdm::Entity>, FabricError> {
+    ctx.require_role(Role::Operator)?;
     let tenant = tenant_from_headers(&headers)?;
     let version = if_match_version(&headers)?;
     let entity = state
@@ -67,9 +72,11 @@ pub async fn patch_entity(
 
 pub async fn delete_entity(
     State(state): State<AppState>,
+    Extension(ctx): Extension<AuthCtx>,
     Path((kind, id)): Path<(String, Uuid)>,
     headers: HeaderMap,
 ) -> Result<Json<EntityDeleteResponse>, FabricError> {
+    ctx.require_role(Role::Operator)?;
     let tenant = tenant_from_headers(&headers)?;
     let response = state.entities.delete(tenant, &kind, id).await?;
     Ok(Json(response))

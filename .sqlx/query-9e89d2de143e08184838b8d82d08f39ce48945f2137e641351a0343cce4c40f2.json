@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO envelope (id, tenant_id, state, doc)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (id) DO UPDATE\n            SET tenant_id = EXCLUDED.tenant_id,\n                state = EXCLUDED.state,\n                doc = EXCLUDED.doc,\n                updated_at = now()\n            RETURNING\n                id,\n                tenant_id,\n                state,\n                doc as \"doc!: Json<Value>\"\n            ",
+  "query": "\n            INSERT INTO envelope (id, tenant_id, state, doc, trace_context)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (id) DO NOTHING\n            RETURNING\n                id,\n                tenant_id,\n                state,\n                doc as \"doc!: Json<Value>\",\n                revision\n            ",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "ordinal": 3,
         "name": "doc!: Json<Value>",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "revision",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
@@ -29,6 +34,7 @@
         "Uuid",
         "Uuid",
         "Text",
+        "Jsonb",
         "Jsonb"
       ]
     },
@@ -36,8 +42,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "cca199633e0cd7e7d3dc5fb865a9d131f1aeadc73ce705c526e9d80a6d22388c"
+  "hash": "9e89d2de143e08184838b8d82d08f39ce48945f2137e641351a0343cce4c40f2"
 }

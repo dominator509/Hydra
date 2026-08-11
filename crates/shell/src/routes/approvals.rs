@@ -227,7 +227,12 @@ pub async fn batch_approve(
 
     let mut approved = 0usize;
     for envelope in &envelopes {
-        if state.envelopes.approve(&ctx, tenant, envelope.id).await.is_ok() {
+        if state
+            .envelopes
+            .approve(&ctx, tenant, envelope.id)
+            .await
+            .is_ok()
+        {
             approved += 1;
         }
     }
@@ -290,7 +295,12 @@ pub async fn batch_reject(
 
     let mut rejected = 0usize;
     for envelope in &envelopes {
-        if state.envelopes.reject(&ctx, tenant, envelope.id).await.is_ok() {
+        if state
+            .envelopes
+            .reject(&ctx, tenant, envelope.id)
+            .await
+            .is_ok()
+        {
             rejected += 1;
         }
     }

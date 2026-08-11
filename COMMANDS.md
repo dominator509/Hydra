@@ -24,13 +24,20 @@ Package manager rule: cargo only. npm/pnpm/yarn/pip are forbidden in this reposi
 | Full verification | `bash scripts/verify.sh` | `verify: ok` |
 | Build adapters | `bash scripts/build-adapters.sh` | `adapters: ok` |
 | Cache-hit audit (TOKENKILLER) | `bash scripts/cache-hit-audit.sh` | `cache-hit audit: ok (ratio=0.9XX)` |
-| Production readiness | `bash scripts/production-readiness-check.sh` | `production readiness: ok` |
+| Production readiness | `bash scripts/production-readiness-check.sh` | `production-readiness:ok` |
+| ExecPlan state validation | `bash scripts/check-execplan-state.sh` | `execplan state: ok` |
+| Nexus MCP contract | `cargo test -p fabric mcp_contract -- --nocapture` | 4 MCP contract tests pass |
 | Local dev (stateful services) | `docker compose -f docker/compose.yaml up -d postgres nats` | containers healthy |
 | Local dev (kernel+shell) | `cargo run -p hydra-kernel` | `hydra: listening on :8080` log line |
 | Local DB setup | `bash scripts/db-setup.sh` | `db setup: ok` |
 | Migrations | `cargo sqlx migrate run` (after EP-003) | `Applied N migrations` |
+| Refresh checked SQLx metadata | `cargo sqlx prepare --workspace -- --all-targets` | exit 0 and `.sqlx/` updated |
+| Docker image validation | `docker build -f docker/Dockerfile -t hydra/kernel:local .` | image build exits 0 |
+| Compose validation | `docker compose -f docker/compose.yaml config` | normalized standalone config and exit 0; requires configured `POSTGRES_PASSWORD` and `HYDRA_VAULT_KEY` |
+| Nexus Compose validation | `docker compose --env-file docker/nexus.env.example -f docker/compose.yaml config` | normalized Nexus-connected config and exit 0 |
 | Single crate check (diagnostic) | `cargo check -p <crate>` | exit 0 |
 | Single test (diagnostic) | `cargo test -p <crate> <name> -- --nocapture` | exit 0 |
+| Dependency tree (diagnostic) | `cargo tree -p <crate>` | resolved dependency tree and exit 0 |
 
 Underlying tool expectations (installed by scripts/install.sh): rustup toolchain 1.79+, `cargo fmt`, `cargo clippy`, `cargo audit`, `cargo deny`, `cargo sqlx` (sqlx-cli), `wasm-tools`, `docker compose`, `jq`, `curl`, `rg`.
 

@@ -1,5 +1,9 @@
 # OPERATIONS.md — Runbook
 
+## Current Reality
+
+The checked-in Compose topology provides Kernel, Caddy, Postgres, JetStream, and Tinyproxy only. It has no cron, drill-fakes, Grafana, owner CLI, bridge lifecycle worker, retention scheduler, or automated vault service. The D1-D5 sections below are historical EP-010 staging procedure drafts, not executed evidence; commands naming absent services or a `hydra` CLI are placeholders and must be implemented/validated before use. No destructive drill is authorized by this document.
+
 ## Local ops
 Start deps: `docker compose -f docker/compose.yaml up -d postgres nats`; run kernel: `cargo run -p hydra-kernel`; logs: stdout JSON, pipe to `jq`.
 
@@ -7,23 +11,23 @@ Start deps: `docker compose -f docker/compose.yaml up -d postgres nats`; run ker
 `docker compose ps` (all healthy); `docker compose logs -f kernel | jq 'select(.level=="ERROR")'`.
 
 ## Health checks
-GET /healthz (process live) ; /readyz (PG ping, NATS ping, vault loaded, adapters loaded) ; /metrics (Prometheus).
+GET /healthz proves process liveness. GET /readyz checks Postgres, NATS flush, and required canonical event/relay readiness; it does not prove vault or adapter lifecycle readiness. GET /metrics exposes the current Prometheus text surface.
 
 ## Common failure modes
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | readyz 503 "nats" | nats container down | `docker compose restart nats`; kernel reconnects |
 | envelopes stuck PendingApproval | autonomy cell L2/L3 with empty approver queue | shell → Approvals; or raise cell level (ADR + config) |
-| adapter parked | repeated bridge-error upstream | `hydra bridge status <id>`; check egress proxy logs; resume: `hydra bridge resume <id>` |
+| adapter parked | repeated bridge-error upstream | Bridge lifecycle commands are not currently available; retain the parked state and inspect redacted Kernel/proxy logs |
 | tk_cache_hit_ratio drop | S0–S2 segment drift (config change w/o version bump) or transcript rewrite bug | `bash scripts/cache-hit-audit.sh`; diff `tk_segment_version`; see OBSERVABILITY "cache forensics" |
 | nuke_aborts spike | model dumping payloads | inspect ledger sample outputs; tighten route contract/max_tokens |
-| PG disk growth | event_log unpruned | verify retention job `events_prune` ran (cron container) |
+| PG disk growth | retention job absent or not yet implemented | Treat as an EP-010 blocker; the reference Compose file has no cron service |
 
 ## Backup / restore
-Nightly `scripts/db-backup.sh` → pg_dump + WAL to /backups (off-box rsync). Restore drill (quarterly + EP-010): fresh volume → `scripts/db-restore.sh <dump>` → smoke green.
+`scripts/db-backup.sh` and `scripts/db-restore.sh` are operator-invoked helpers. No nightly scheduler, off-box copy, WAL policy, or completed restore drill is evidenced in this repository.
 
 ## Scheduled jobs
-purge soft-deleted >30d (daily 03:00), events_prune to 180d (daily), token-ledger rollup hourly, backup nightly — all as compose `cron` service entries.
+Not implemented in the reference Compose topology. Soft-delete purge, event retention, ledger rollup, and scheduled backup require an explicit operator design and staging evidence.
 
 ## Incident triage
 Sev1 = data integrity or security breach; Sev2 = feature down; Sev3 = degraded. Follow .agent/checklists/incident-response.md. Escalation: operator (djw) is L1+L2; vendor status pages for provider outages.

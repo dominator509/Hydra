@@ -25,14 +25,17 @@ impl TokenScope {
     ///
     /// Unknown scope names are silently ignored.
     pub fn parse_all(input: &str) -> Vec<TokenScope> {
-        input.split_whitespace().filter_map(|s| match s {
-            "read:cdm" => Some(TokenScope::ReadCdm),
-            "write:envelopes" => Some(TokenScope::WriteEnvelopes),
-            "approve:envelopes" => Some(TokenScope::ApproveEnvelopes),
-            "admin:bridges" => Some(TokenScope::AdminBridges),
-            "admin:autonomy" => Some(TokenScope::AdminAutonomy),
-            _ => None,
-        }).collect()
+        input
+            .split_whitespace()
+            .filter_map(|s| match s {
+                "read:cdm" => Some(TokenScope::ReadCdm),
+                "write:envelopes" => Some(TokenScope::WriteEnvelopes),
+                "approve:envelopes" => Some(TokenScope::ApproveEnvelopes),
+                "admin:bridges" => Some(TokenScope::AdminBridges),
+                "admin:autonomy" => Some(TokenScope::AdminAutonomy),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Canonical string representation of this scope (the claim value).
@@ -67,7 +70,12 @@ pub struct TokenClaims {
 
 impl TokenClaims {
     /// Build a new set of claims valid for `ttl_hours` from now.
-    pub fn new(subject: String, audience: uuid::Uuid, scopes: &[TokenScope], ttl_hours: i64) -> Self {
+    pub fn new(
+        subject: String,
+        audience: uuid::Uuid,
+        scopes: &[TokenScope],
+        ttl_hours: i64,
+    ) -> Self {
         let now = OffsetDateTime::now_utc();
         let scope = scopes
             .iter()
@@ -103,8 +111,7 @@ impl TokenService {
     pub fn sign(&self, claims: &TokenClaims) -> Result<String, String> {
         let header = serde_json::json!({"alg": "HS256", "typ": "JWT"});
         let header_b64 = encode_b64url(&serde_json::to_vec(&header).map_err(|e| e.to_string())?);
-        let payload_b64 =
-            encode_b64url(&serde_json::to_vec(claims).map_err(|e| e.to_string())?);
+        let payload_b64 = encode_b64url(&serde_json::to_vec(claims).map_err(|e| e.to_string())?);
 
         let signing_input = format!("{header_b64}.{payload_b64}");
         let signature = self.sign_raw(signing_input.as_bytes())?;
@@ -125,8 +132,8 @@ impl TokenService {
             decode_b64url(parts[2]).map_err(|e| format!("invalid signature encoding: {e}"))?;
 
         // Compute HMAC and compare in constant time
-        let mut mac = HmacSha256::new_from_slice(&self.secret)
-            .map_err(|e| format!("HMAC init: {e}"))?;
+        let mut mac =
+            HmacSha256::new_from_slice(&self.secret).map_err(|e| format!("HMAC init: {e}"))?;
         mac.update(signing_input.as_bytes());
         mac.verify_slice(&actual_sig)
             .map_err(|_| "signature mismatch".to_string())?;
@@ -137,8 +144,8 @@ impl TokenService {
     }
 
     fn sign_raw(&self, data: &[u8]) -> Result<Vec<u8>, String> {
-        let mut mac = HmacSha256::new_from_slice(&self.secret)
-            .map_err(|e| format!("HMAC key init: {e}"))?;
+        let mut mac =
+            HmacSha256::new_from_slice(&self.secret).map_err(|e| format!("HMAC key init: {e}"))?;
         mac.update(data);
         Ok(mac.finalize().into_bytes().to_vec())
     }
@@ -273,12 +280,7 @@ mod tests {
     fn verify_rejects_wrong_secret() {
         let svc1 = TokenService::new(b"secret-1".to_vec());
         let svc2 = TokenService::new(b"secret-2".to_vec());
-        let claims = TokenClaims::new(
-            "sub".into(),
-            Uuid::nil(),
-            &[TokenScope::ReadCdm],
-            1,
-        );
+        let claims = TokenClaims::new("sub".into(), Uuid::nil(), &[TokenScope::ReadCdm], 1);
 
         let token = svc1.sign(&claims).expect("base64 roundtrip");
         assert!(svc2.verify(&token).is_err());

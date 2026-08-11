@@ -92,7 +92,7 @@ impl MetricsRegistry {
     fn register_defaults(&mut self) {
         self.counters
             .lock()
-            .unwrap()
+            .expect("metrics counters lock should not be poisoned")
             .entry("hydra_requests_total".into())
             .or_insert_with(|| CounterFamily {
                 help: "Total HTTP requests".into(),
@@ -101,7 +101,7 @@ impl MetricsRegistry {
 
         self.counters
             .lock()
-            .unwrap()
+            .expect("metrics counters lock should not be poisoned")
             .entry("hydra_envelopes_total".into())
             .or_insert_with(|| CounterFamily {
                 help: "Envelopes by state".into(),
@@ -110,7 +110,7 @@ impl MetricsRegistry {
 
         self.counters
             .lock()
-            .unwrap()
+            .expect("metrics counters lock should not be poisoned")
             .entry("hydra_tk_nuke_aborts_total".into())
             .or_insert_with(|| CounterFamily {
                 help: "Total TK nuke aborts".into(),
@@ -119,7 +119,7 @@ impl MetricsRegistry {
 
         self.histograms
             .lock()
-            .unwrap()
+            .expect("metrics histograms lock should not be poisoned")
             .entry("hydra_request_duration_seconds".into())
             .or_insert_with(|| HistogramFamily {
                 help: "Request duration distribution (seconds)".into(),
@@ -128,7 +128,7 @@ impl MetricsRegistry {
 
         self.gauges
             .lock()
-            .unwrap()
+            .expect("metrics gauges lock should not be poisoned")
             .entry("hydra_tk_cache_hit_ratio".into())
             .or_insert_with(|| GaugeValue {
                 help: "TK cache hit ratio (1h rolling)".into(),
@@ -137,7 +137,7 @@ impl MetricsRegistry {
 
         self.gauges
             .lock()
-            .unwrap()
+            .expect("metrics gauges lock should not be poisoned")
             .entry("hydra_db_connections".into())
             .or_insert_with(|| GaugeValue {
                 help: "Active database connections".into(),
@@ -147,9 +147,15 @@ impl MetricsRegistry {
 
     // -- counters -----------------------------------------------------------
 
+    #[cfg(test)]
     pub(crate) fn inc_counter(&self, name: &str, labels: Vec<(String, String)>) {
-        let mut counters = self.counters.lock().unwrap();
-        let family = counters.get_mut(name).expect("counter not pre-registered; call register_defaults first");
+        let mut counters = self
+            .counters
+            .lock()
+            .expect("metrics counters lock should not be poisoned");
+        let family = counters
+            .get_mut(name)
+            .expect("counter not pre-registered; call register_defaults first");
 
         // Look for an existing row with the same labels.
         if let Some(row) = family.rows.iter_mut().find(|r| r.labels == labels) {
@@ -159,26 +165,14 @@ impl MetricsRegistry {
         }
     }
 
-    pub(crate) fn inc_counter_by(
-        &self,
-        name: &str,
-        by: u64,
-        labels: Vec<(String, String)>,
-    ) {
-        let mut counters = self.counters.lock().unwrap();
-        let family = counters.get_mut(name).expect("counter not pre-registered");
-
-        if let Some(row) = family.rows.iter_mut().find(|r| r.labels == labels) {
-            row.value += by;
-        } else {
-            family.rows.push(CounterRow { labels, value: by });
-        }
-    }
-
     // -- histograms ---------------------------------------------------------
 
+    #[cfg(test)]
     pub(crate) fn observe_histogram(&self, name: &str, value: f64, labels: Vec<(String, String)>) {
-        let mut histos = self.histograms.lock().unwrap();
+        let mut histos = self
+            .histograms
+            .lock()
+            .expect("metrics histograms lock should not be poisoned");
         let family = histos.get_mut(name).expect("histogram not pre-registered");
 
         if let Some(row) = family.rows.iter_mut().find(|r| r.labels == labels) {
@@ -209,8 +203,12 @@ impl MetricsRegistry {
 
     // -- gauges -------------------------------------------------------------
 
+    #[cfg(test)]
     pub(crate) fn set_gauge(&self, name: &str, value: f64) {
-        let mut gauges = self.gauges.lock().unwrap();
+        let mut gauges = self
+            .gauges
+            .lock()
+            .expect("metrics gauges lock should not be poisoned");
         if let Some(g) = gauges.get_mut(name) {
             g.value = value;
         }
@@ -224,7 +222,10 @@ impl MetricsRegistry {
 
         // Counters
         {
-            let counters = self.counters.lock().unwrap();
+            let counters = self
+                .counters
+                .lock()
+                .expect("metrics counters lock should not be poisoned");
             for (name, family) in counters.iter() {
                 let _ = writeln!(out, "# HELP {name} {}", family.help);
                 let _ = writeln!(out, "# TYPE {name} counter");
@@ -240,7 +241,10 @@ impl MetricsRegistry {
 
         // Histograms
         {
-            let histos = self.histograms.lock().unwrap();
+            let histos = self
+                .histograms
+                .lock()
+                .expect("metrics histograms lock should not be poisoned");
             for (name, family) in histos.iter() {
                 let _ = writeln!(out, "# HELP {name} {}", family.help);
                 let _ = writeln!(out, "# TYPE {name} histogram");
@@ -288,7 +292,10 @@ impl MetricsRegistry {
 
         // Gauges
         {
-            let gauges = self.gauges.lock().unwrap();
+            let gauges = self
+                .gauges
+                .lock()
+                .expect("metrics gauges lock should not be poisoned");
             for (name, g) in gauges.iter() {
                 let _ = writeln!(out, "# HELP {name} {}", g.help);
                 let _ = writeln!(out, "# TYPE {name} gauge");
@@ -325,50 +332,6 @@ fn format_bound(bound: f64) -> String {
     } else {
         bound.to_string()
     }
-}
-
-// ---------------------------------------------------------------------------
-// Convenience hook functions
-// ---------------------------------------------------------------------------
-
-/// Record an HTTP request and its duration.
-pub fn record_request(method: &str, path: &str, status: u16, duration: std::time::Duration) {
-    let labels = vec![
-        ("method".into(), method.to_string()),
-        ("path".into(), path.to_string()),
-        ("status".into(), status.to_string()),
-    ];
-    registry().inc_counter("hydra_requests_total", labels.clone());
-
-    registry()
-        .observe_histogram("hydra_request_duration_seconds", duration.as_secs_f64(), {
-            let mut l = labels;
-            l.pop(); // remove status for histogram labels
-            l
-        });
-}
-
-/// Record an envelope transition by state name.
-pub fn record_envelope(state: &str) {
-    registry().inc_counter(
-        "hydra_envelopes_total",
-        vec![("state".into(), state.to_string())],
-    );
-}
-
-/// Update the TK cache hit ratio gauge.
-pub fn update_tk_ratio(ratio: f64) {
-    registry().set_gauge("hydra_tk_cache_hit_ratio", ratio);
-}
-
-/// Record a TK nuke abort.
-pub fn record_nuke_abort() {
-    registry().inc_counter("hydra_tk_nuke_aborts_total", vec![]);
-}
-
-/// Update the active DB connection count gauge.
-pub fn update_db_connections(count: f64) {
-    registry().set_gauge("hydra_db_connections", count);
 }
 
 // ---------------------------------------------------------------------------
@@ -448,10 +411,8 @@ mod tests {
     #[test]
     fn metrics_nuke_abort_records() {
         let reg = MetricsRegistry::new();
-        // Using the convenience hook through the global registry.
-        // We'll test the internal method directly:
-        record_nuke_abort();
-        let output = registry().render();
+        reg.inc_counter("hydra_tk_nuke_aborts_total", vec![]);
+        let output = reg.render();
         assert!(output.contains("hydra_tk_nuke_aborts_total"));
     }
 
@@ -467,19 +428,32 @@ mod tests {
             ],
         );
         reg.observe_histogram("hydra_request_duration_seconds", 0.042, {
-            vec![("method".into(), "POST".into()), ("path".into(), "/api/test".into())]
+            vec![
+                ("method".into(), "POST".into()),
+                ("path".into(), "/api/test".into()),
+            ]
         });
 
         let output = reg.render();
-        assert!(output.contains("hydra_request_duration_seconds_count"), "histogram count missing");
-        assert!(output.contains("hydra_request_duration_seconds_sum"), "histogram sum missing");
+        assert!(
+            output.contains("hydra_request_duration_seconds_count"),
+            "histogram count missing"
+        );
+        assert!(
+            output.contains("hydra_request_duration_seconds_sum"),
+            "histogram sum missing"
+        );
         assert!(output.contains("_bucket"), "histogram buckets missing");
     }
 
     #[test]
     fn metrics_envelope_records() {
-        record_envelope("PendingApproval");
-        let output = registry().render();
+        let reg = MetricsRegistry::new();
+        reg.inc_counter(
+            "hydra_envelopes_total",
+            vec![("state".into(), "PendingApproval".into())],
+        );
+        let output = reg.render();
         assert!(output.contains("hydra_envelopes_total{state=\"PendingApproval\"}"));
     }
 }

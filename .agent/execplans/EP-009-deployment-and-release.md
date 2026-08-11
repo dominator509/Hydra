@@ -43,3 +43,6 @@ Builds cached; compose up idempotent; deploy script re-runnable (pull+up -d); re
 ## 13. Surprises & Discoveries
 ## 14. Decision Log
 ## 15. Outcomes & Retrospective
+
+## Post-Implementation Reality Check (2026-08-10)
+Docker, Compose, Caddy, release workflow, and deploy scripts exist, but the checked M1-M5 status has no Outcomes evidence and current topology contradicts its boundary claims. `backnet-internal` is internal-only while the egress proxy has no external-capable network; kernel and NATS client/monitoring ports are published by default; direct kernel exposure bypasses Caddy. EP-015 owns standalone/Nexus profile correction plus image and normalized Compose validation. No deployment is authorized.

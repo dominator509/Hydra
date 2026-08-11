@@ -18,25 +18,19 @@ pub enum WiringError {
     #[error("unknown transform: {0}")]
     UnknownTransform(String),
     #[error("missing required parameter '{param}' for transform '{transform}'")]
-    MissingParam {
-        transform: String,
-        param: String,
-    },
-    #[error("index {index} out of bounds (split produced {len} parts) for transform '{transform}'")]
+    MissingParam { transform: String, param: String },
+    #[error(
+        "index {index} out of bounds (split produced {len} parts) for transform '{transform}'"
+    )]
     IndexOutOfBounds {
         transform: String,
         index: usize,
         len: usize,
     },
     #[error("not found in lookup table for transform '{transform}'")]
-    LookupNotFound {
-        transform: String,
-    },
+    LookupNotFound { transform: String },
     #[error("parse error for transform '{transform}': {detail}")]
-    ParseError {
-        transform: String,
-        detail: String,
-    },
+    ParseError { transform: String, detail: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -115,12 +109,10 @@ fn apply_usd_to_cents(input: &str) -> Result<String, WiringError> {
         .chars()
         .filter(|c| c.is_ascii_digit() || *c == '.')
         .collect();
-    let value: f64 = cleaned
-        .parse()
-        .map_err(|_| WiringError::ParseError {
-            transform: "usd_to_cents".into(),
-            detail: format!("cannot parse as number: {trimmed}"),
-        })?;
+    let value: f64 = cleaned.parse().map_err(|_| WiringError::ParseError {
+        transform: "usd_to_cents".into(),
+        detail: format!("cannot parse as number: {trimmed}"),
+    })?;
     let cents = (value * 100.0).round() as i64;
     Ok(cents.to_string())
 }
@@ -141,8 +133,16 @@ fn apply_date_iso(input: &str, format: &str) -> Result<String, WiringError> {
             let month = parts[1];
             let year = parts[2];
             // Pad single-digit day/month
-            let day = if day.len() == 1 { format!("0{day}") } else { day.to_owned() };
-            let month = if month.len() == 1 { format!("0{month}") } else { month.to_owned() };
+            let day = if day.len() == 1 {
+                format!("0{day}")
+            } else {
+                day.to_owned()
+            };
+            let month = if month.len() == 1 {
+                format!("0{month}")
+            } else {
+                month.to_owned()
+            };
             Ok(format!("{year}-{month}-{day}"))
         }
         "mdy" | "m/d/Y" => {
@@ -153,8 +153,16 @@ fn apply_date_iso(input: &str, format: &str) -> Result<String, WiringError> {
                     detail: format!("expected m/d/Y format, got: {trimmed}"),
                 });
             }
-            let month = if parts[0].len() == 1 { format!("0{}", parts[0]) } else { parts[0].to_owned() };
-            let day = if parts[1].len() == 1 { format!("0{}", parts[1]) } else { parts[1].to_owned() };
+            let month = if parts[0].len() == 1 {
+                format!("0{}", parts[0])
+            } else {
+                parts[0].to_owned()
+            };
+            let day = if parts[1].len() == 1 {
+                format!("0{}", parts[1])
+            } else {
+                parts[1].to_owned()
+            };
             let year = parts[2];
             Ok(format!("{year}-{month}-{day}"))
         }
@@ -231,34 +239,33 @@ pub fn apply_wiring(input: &str, transforms: &[WiringTransform]) -> Result<Strin
             }
 
             "lookup" => {
-                let table_str = t.params.get("table").ok_or_else(|| {
-                    WiringError::MissingParam {
+                let table_str = t
+                    .params
+                    .get("table")
+                    .ok_or_else(|| WiringError::MissingParam {
                         transform: "lookup".into(),
                         param: "table".into(),
-                    }
-                })?;
-                let table: HashMap<String, String> = serde_json::from_str(table_str).map_err(
-                    |e| WiringError::ParseError {
+                    })?;
+                let table: HashMap<String, String> =
+                    serde_json::from_str(table_str).map_err(|e| WiringError::ParseError {
                         transform: "lookup".into(),
                         detail: format!("invalid lookup table JSON: {e}"),
-                    },
-                )?;
+                    })?;
                 apply_lookup(&current, &table)?
             }
 
             "split" => {
                 let sep = t.params.get("sep").cloned().unwrap_or_else(|| ",".into());
-                let idx_str = t.params.get("idx").ok_or_else(|| {
-                    WiringError::MissingParam {
+                let idx_str = t
+                    .params
+                    .get("idx")
+                    .ok_or_else(|| WiringError::MissingParam {
                         transform: "split".into(),
                         param: "idx".into(),
-                    }
-                })?;
-                let idx: usize = idx_str.parse().map_err(|_| {
-                    WiringError::ParseError {
-                        transform: "split".into(),
-                        detail: format!("idx must be a non-negative integer: {idx_str}"),
-                    }
+                    })?;
+                let idx: usize = idx_str.parse().map_err(|_| WiringError::ParseError {
+                    transform: "split".into(),
+                    detail: format!("idx must be a non-negative integer: {idx_str}"),
                 })?;
                 apply_split(&current, &sep, idx)?
             }
@@ -269,12 +276,13 @@ pub fn apply_wiring(input: &str, transforms: &[WiringTransform]) -> Result<Strin
             }
 
             "const_val" => {
-                let value = t.params.get("value").ok_or_else(|| {
-                    WiringError::MissingParam {
+                let value = t
+                    .params
+                    .get("value")
+                    .ok_or_else(|| WiringError::MissingParam {
                         transform: "const_val".into(),
                         param: "value".into(),
-                    }
-                })?;
+                    })?;
                 apply_const_val(&current, value)
             }
 
@@ -298,50 +306,50 @@ mod tests {
     #[test]
     fn test_trim() {
         let result = apply_wiring("  hello world  ", &[WiringTransform::new("trim")]);
-        assert_eq!(result.unwrap(), "hello world");
+        assert_eq!(result.expect("transform should succeed"), "hello world");
     }
 
     #[test]
     fn test_lower() {
         let result = apply_wiring("Hello World", &[WiringTransform::new("lower")]);
-        assert_eq!(result.unwrap(), "hello world");
+        assert_eq!(result.expect("transform should succeed"), "hello world");
     }
 
     #[test]
     fn test_upper() {
         let result = apply_wiring("Hello World", &[WiringTransform::new("upper")]);
-        assert_eq!(result.unwrap(), "HELLO WORLD");
+        assert_eq!(result.expect("transform should succeed"), "HELLO WORLD");
     }
 
     #[test]
     fn test_titlecase() {
         let result = apply_wiring("hello world", &[WiringTransform::new("titlecase")]);
-        assert_eq!(result.unwrap(), "Hello World");
+        assert_eq!(result.expect("transform should succeed"), "Hello World");
     }
 
     #[test]
     fn test_phone_e164() {
         // "4255550101" after strip non-digits → "+4255550101" (10 digits after +)
         let result = apply_wiring("(425) 555-0101", &[WiringTransform::new("phone_e164")]);
-        assert_eq!(result.unwrap(), "+4255550101");
+        assert_eq!(result.expect("transform should succeed"), "+4255550101");
     }
 
     #[test]
     fn test_phone_e164_empty() {
         let result = apply_wiring("N/A", &[WiringTransform::new("phone_e164")]);
-        assert_eq!(result.unwrap(), "");
+        assert_eq!(result.expect("transform should succeed"), "");
     }
 
     #[test]
     fn test_usd_to_cents() {
         let result = apply_wiring("$12.34", &[WiringTransform::new("usd_to_cents")]);
-        assert_eq!(result.unwrap(), "1234");
+        assert_eq!(result.expect("transform should succeed"), "1234");
     }
 
     #[test]
     fn test_usd_to_cents_whole() {
         let result = apply_wiring("$50", &[WiringTransform::new("usd_to_cents")]);
-        assert_eq!(result.unwrap(), "5000");
+        assert_eq!(result.expect("transform should succeed"), "5000");
     }
 
     #[test]
@@ -354,14 +362,14 @@ mod tests {
     fn test_date_iso_dmy() {
         let t = WiringTransform::new("date_iso").with("format", "d/m/Y");
         let result = apply_wiring("15/04/2025", &[t]);
-        assert_eq!(result.unwrap(), "2025-04-15");
+        assert_eq!(result.expect("transform should succeed"), "2025-04-15");
     }
 
     #[test]
     fn test_date_iso_mdy() {
         let t = WiringTransform::new("date_iso").with("format", "m/d/Y");
         let result = apply_wiring("04/15/2025", &[t]);
-        assert_eq!(result.unwrap(), "2025-04-15");
+        assert_eq!(result.expect("transform should succeed"), "2025-04-15");
     }
 
     #[test]
@@ -369,14 +377,14 @@ mod tests {
         // d/m/Y: day=1, month=2 → ISO 2025-02-01
         let t = WiringTransform::new("date_iso").with("format", "d/m/Y");
         let result = apply_wiring("1/2/2025", &[t]);
-        assert_eq!(result.unwrap(), "2025-02-01");
+        assert_eq!(result.expect("transform should succeed"), "2025-02-01");
     }
 
     #[test]
     fn test_date_iso_passthrough() {
         let t = WiringTransform::new("date_iso").with("format", "Y-m-d");
         let result = apply_wiring("2025-01-02", &[t]);
-        assert_eq!(result.unwrap(), "2025-01-02");
+        assert_eq!(result.expect("transform should succeed"), "2025-01-02");
     }
 
     #[test]
@@ -384,7 +392,7 @@ mod tests {
         let table = r#"{"lead": "new", "active": "confirmed", "paused": "on_hold"}"#;
         let t = WiringTransform::new("lookup").with("table", table);
         let result = apply_wiring("active", &[t]);
-        assert_eq!(result.unwrap(), "confirmed");
+        assert_eq!(result.expect("transform should succeed"), "confirmed");
     }
 
     #[test]
@@ -397,21 +405,27 @@ mod tests {
 
     #[test]
     fn test_split() {
-        let t = WiringTransform::new("split").with("sep", ",").with("idx", "0");
+        let t = WiringTransform::new("split")
+            .with("sep", ",")
+            .with("idx", "0");
         let result = apply_wiring("abc,def,ghi", &[t]);
-        assert_eq!(result.unwrap(), "abc");
+        assert_eq!(result.expect("transform should succeed"), "abc");
     }
 
     #[test]
     fn test_split_second() {
-        let t = WiringTransform::new("split").with("sep", ",").with("idx", "1");
+        let t = WiringTransform::new("split")
+            .with("sep", ",")
+            .with("idx", "1");
         let result = apply_wiring("abc,def,ghi", &[t]);
-        assert_eq!(result.unwrap(), "def");
+        assert_eq!(result.expect("transform should succeed"), "def");
     }
 
     #[test]
     fn test_split_out_of_bounds() {
-        let t = WiringTransform::new("split").with("sep", ",").with("idx", "99");
+        let t = WiringTransform::new("split")
+            .with("sep", ",")
+            .with("idx", "99");
         let result = apply_wiring("abc", &[t]);
         assert!(result.is_err());
     }
@@ -420,14 +434,14 @@ mod tests {
     fn test_concat_is_passthrough() {
         let t = WiringTransform::new("concat").with("sep", " ");
         let result = apply_wiring("hello world", &[t]);
-        assert_eq!(result.unwrap(), "hello world");
+        assert_eq!(result.expect("transform should succeed"), "hello world");
     }
 
     #[test]
     fn test_const_val() {
         let t = WiringTransform::new("const_val").with("value", "hardcoded_value");
         let result = apply_wiring("ignored", &[t]);
-        assert_eq!(result.unwrap(), "hardcoded_value");
+        assert_eq!(result.expect("transform should succeed"), "hardcoded_value");
     }
 
     #[test]
@@ -457,12 +471,9 @@ mod tests {
 
     #[test]
     fn test_chained_transforms() {
-        let transforms = vec![
-            WiringTransform::new("trim"),
-            WiringTransform::new("upper"),
-        ];
+        let transforms = vec![WiringTransform::new("trim"), WiringTransform::new("upper")];
         let result = apply_wiring("  hello world  ", &transforms);
-        assert_eq!(result.unwrap(), "HELLO WORLD");
+        assert_eq!(result.expect("transform should succeed"), "HELLO WORLD");
     }
 
     #[test]
@@ -475,7 +486,7 @@ mod tests {
                 .with("idx", "0"),
         ];
         let result = apply_wiring("  ALPHA,BETA  ", &transforms);
-        assert_eq!(result.unwrap(), "alpha");
+        assert_eq!(result.expect("transform should succeed"), "alpha");
     }
 
     #[test]
@@ -487,19 +498,19 @@ mod tests {
                 WiringTransform::new("titlecase"),
             ],
         );
-        assert_eq!(result.unwrap(), "John Doe");
+        assert_eq!(result.expect("transform should succeed"), "John Doe");
     }
 
     #[test]
     fn test_phone_e164_on_clean_number() {
         let result = apply_wiring("+1 (206) 555-0100", &[WiringTransform::new("phone_e164")]);
-        assert_eq!(result.unwrap(), "+12065550100");
+        assert_eq!(result.expect("transform should succeed"), "+12065550100");
     }
 
     #[test]
     fn test_usd_to_cents_large() {
         let result = apply_wiring("$1,234.56", &[WiringTransform::new("usd_to_cents")]);
-        assert_eq!(result.unwrap(), "123456");
+        assert_eq!(result.expect("transform should succeed"), "123456");
     }
 
     #[test]
@@ -522,7 +533,7 @@ mod tests {
             WiringTransform::new("lookup").with("table", table),
         ];
         let result = apply_wiring("  active  ", &transforms);
-        assert_eq!(result.unwrap(), "on");
+        assert_eq!(result.expect("transform should succeed"), "on");
     }
 
     #[test]
@@ -537,6 +548,6 @@ mod tests {
         // Default separator is comma
         let t = WiringTransform::new("split").with("idx", "0");
         let result = apply_wiring("a,b,c", &[t]);
-        assert_eq!(result.unwrap(), "a");
+        assert_eq!(result.expect("transform should succeed"), "a");
     }
 }

@@ -40,10 +40,14 @@ pub enum FabricError {
     TenantMismatch,
     #[error("version_conflict")]
     VersionConflict,
+    #[error("idempotency_conflict")]
+    IdempotencyConflict,
     #[error("authz_denied")]
     AuthzDenied,
     #[error("rate_limited")]
     RateLimited,
+    #[error("capability_unavailable: {0}")]
+    CapabilityUnavailable(String),
     #[error("llm_provider_error: {0}")]
     LlmProviderError(String),
     #[error("tk_output_nuked: {0}")]
@@ -66,8 +70,10 @@ impl FabricError {
             Self::NotFound => "not_found",
             Self::TenantMismatch => "tenant_mismatch",
             Self::VersionConflict => "version_conflict",
+            Self::IdempotencyConflict => "idempotency_conflict",
             Self::AuthzDenied => "authz_denied",
             Self::RateLimited => "rate_limited",
+            Self::CapabilityUnavailable(_) => "capability_unavailable",
             Self::LlmProviderError(_) => "llm_provider_error",
             Self::TkOutputNuked(_) => "tk_output_nuked",
             Self::TkPiiRouteBlocked(_) => "tk_pii_route_blocked",
@@ -82,11 +88,12 @@ impl FabricError {
             Self::ValidationFailed(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::AuthnFailed(_) => StatusCode::UNAUTHORIZED,
             Self::NotFound | Self::TenantMismatch => StatusCode::NOT_FOUND,
-            Self::VersionConflict => StatusCode::CONFLICT,
+            Self::VersionConflict | Self::IdempotencyConflict => StatusCode::CONFLICT,
             Self::AuthzDenied | Self::ConstitutionBlocked(_) | Self::CellManualOnly => {
                 StatusCode::FORBIDDEN
             }
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+            Self::CapabilityUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::LlmProviderError(_) | Self::TkOutputNuked(_) => StatusCode::BAD_GATEWAY,
             Self::TkPiiRouteBlocked(_) => StatusCode::BAD_REQUEST,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -100,8 +107,10 @@ impl FabricError {
             Self::NotFound => "Not found",
             Self::TenantMismatch => "Tenant mismatch",
             Self::VersionConflict => "Version conflict",
+            Self::IdempotencyConflict => "Idempotency conflict",
             Self::AuthzDenied => "Authorization denied",
             Self::RateLimited => "Rate limited",
+            Self::CapabilityUnavailable(_) => "Capability unavailable",
             Self::LlmProviderError(_) => "LLM provider error",
             Self::TkOutputNuked(_) => "TOKENKILLER output nuked",
             Self::TkPiiRouteBlocked(_) => "PII route blocked",
@@ -119,6 +128,7 @@ impl FabricError {
             | Self::TkOutputNuked(detail)
             | Self::TkPiiRouteBlocked(detail)
             | Self::ConstitutionBlocked(detail) => Some(detail.clone()),
+            Self::CapabilityUnavailable(detail) => Some(detail.clone()),
             Self::Internal(_) => None,
             _ => None,
         }
@@ -145,6 +155,8 @@ impl From<store::StoreError> for FabricError {
             store::StoreError::Conflict(_) => Self::VersionConflict,
             store::StoreError::NotFound => Self::NotFound,
             store::StoreError::TenantMismatch => Self::TenantMismatch,
+            store::StoreError::IdempotencyConflict => Self::IdempotencyConflict,
+            store::StoreError::ApprovalDenied => Self::AuthzDenied,
             store::StoreError::SchemaViolation { path, message } => {
                 Self::ValidationFailed(format!("{path}: {message}"))
             }

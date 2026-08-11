@@ -108,3 +108,12 @@ The final production deploy requires a human `PROMOTE=yes` step outside EP-010 s
 ### Final Status
 Production-readiness criteria: **PARTIALLY PASSED** (code-level gates complete; staging-dependent items deferred).
 Awaiting: staging deploy, drill execution, 24h soak, human sign-off + PROMOTE=yes.
+
+## Post-Implementation Reality Check (2026-08-10)
+The final `PARTIALLY PASSED` status remains correct and all staging/human-owned work remains open. The earlier code-review paragraph overstates current controls: rate limiting is pass-through, tenant checks are not consistently bound to authenticated identity, MCP/token behavior is development-grade, and the runtime does not wire the executor/BridgeHost/real agents/real TOKENKILLER router. EP-011 through EP-015 correct and locally validate the Nexus seam only; they do not satisfy D1-D5, 24h soak, live security/accessibility/performance/restore/rollback evidence, or human production sign-off.
+
+## Post-EP-015 Reality Check (2026-08-11)
+
+EP-012 through EP-015 corrected the Nexus-specific deficiencies named above: external OIDC/binding auth, enforced rate limiting, governed execution/runtime wiring, canonical acknowledged events, real fake-Nexus E2E, truthful gates, and isolated container packaging now pass local executable checks. This supersedes only the 2026-08-10 description of those code paths, not EP-010's partial status.
+
+Production readiness still fails closed. D1-D5, the 24-hour soak, real IdP/TLS staging, human security/privacy/accessibility review, measured performance, live observability, Postgres/JetStream/secret restore, rollback, retention/export scheduling, and launch sign-off have no PASS evidence. The runtime validates `HYDRA_VAULT_KEY` but does not wire a persisted encrypted vault/production BridgeHost secret source; the reference Caddyfile uses a local CA; binding bootstrap is owner-operated; and no SBOM/signed provenance policy exists. `PRODUCTION_READINESS.md` is the current evidence ledger.

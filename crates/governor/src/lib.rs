@@ -10,7 +10,8 @@ use thiserror::Error;
 pub use constitution::{Constitution, Rule, SpendSnapshot};
 pub use decision::{Decision, ExecuteToken};
 pub use envelope::{
-    ActionEnvelope, BlastRadius, Clock, EnvelopeState, Level, Reversal, Transition,
+    ActionEnvelope, BlastRadius, Clock, EnvelopeState, InvocationContext, Level, Reversal,
+    Transition,
 };
 pub use policy::{Cell, PolicyMatrix};
 
@@ -57,7 +58,25 @@ impl Governor {
             Level::L0 => Decision::Block("cell is manual-only (L0)".to_owned()),
             Level::L1 => Decision::SuggestOnly,
             Level::L2 | Level::L3 => Decision::Queue,
-            Level::L4 | Level::L5 => Decision::Execute(ExecuteToken::new(envelope.id)),
+            Level::L4 | Level::L5 => {
+                Decision::Execute(ExecuteToken::new(envelope.tenant, envelope.id))
+            }
+        }
+    }
+
+    pub fn authorize_after_human_approval(
+        &self,
+        envelope: &ActionEnvelope,
+        spend: &SpendSnapshot,
+    ) -> Decision {
+        match self.evaluate(envelope, spend) {
+            Decision::Block(reason) => Decision::Block(reason),
+            Decision::SuggestOnly => Decision::Block(
+                "current autonomy policy does not permit approved execution".to_owned(),
+            ),
+            Decision::Queue | Decision::Execute(_) => {
+                Decision::Execute(ExecuteToken::new(envelope.tenant, envelope.id))
+            }
         }
     }
 }

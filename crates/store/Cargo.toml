@@ -9,6 +9,7 @@ publish.workspace = true
 cdm = { path = "../cdm", version = "0.1.0" }
 governor = { path = "../governor", version = "0.1.0" }
 sqlx.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true

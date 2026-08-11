@@ -14,5 +14,13 @@
 | 7 Observability & ops | tracing JSON, metrics, /healthz, alerts, runbooks, TK dashboards | 6 | smoke + obs acceptance | SPEC-007 | EP-008 |
 | 8 Deploy & release | Dockerfiles, compose, Caddy, CI/CD, staging, rollback path | 7 | staging deploy + smoke green | — | EP-009 |
 | 9 Production readiness | drills (restore, rollback, nuke, cache), reviews, launch gate | 8 | PRODUCTION_READINESS all green | SPEC-008 | EP-010 |
+| 10 Nexus boundary reconciliation | Reconcile plan claims, code, trust boundaries, and normative interoperability contract | 3-9 | EP-011 evidence and docs accepted | SPEC-010 | EP-011 |
+| 11 Nexus control plane | Asymmetric JWT resource-server auth, tenant binding, capabilities, MCP, REST facade | 10 | Auth/MCP boundary tests green | SPEC-010 | EP-012 |
+| 12 Governed execution | Provenance, idempotency, typed handlers, approvals, real runtime wiring | 11 | Governed mutation and executor tests green | SPEC-010 | EP-013 |
+| 13 Nexus event bridge | Versioned events, JetStream acknowledgements, replay, trace propagation | 12 | Event contract and durable consumer tests green | SPEC-010 | EP-014 |
+| 14 Nexus integration proof | Fake Nexus round trip, truthful gates, standalone/connected deployment profiles | 13 | EP-015 acceptance commands green; no production deploy | SPEC-010 | EP-015 |
+| 15 Optional Nexus model/A2A/skills | Optional Nexus model provider, long-running A2A facade, signed skill discovery | 14 | Deferred until EP-011 through EP-015 pass | future spec | EP-016 (DEFERRED) |
 
 Production readiness milestone = Phase 9 exit = `scripts/production-readiness-check.sh` → `production readiness: ok`.
+
+The roadmap is strategy only. `.agent/state/execplan-index.md` records current verified status and the single active implementation plan.

@@ -1,7 +1,16 @@
+pub mod authorization;
 pub mod jwt;
+pub mod oidc;
 pub mod password;
+pub mod principal;
 pub mod session;
 
+pub use authorization::AuthorizationService;
+pub use oidc::{
+    parse_algorithm, ExternalBindingResolver, NexusOidcConfig, OidcAuthenticator, OidcKeySource,
+    ResolvedExternalBinding,
+};
+pub use principal::{CorrelationContext, PrincipalContext, PrincipalType, Scope};
 pub use session::SessionStore;
 
 use std::str::FromStr;

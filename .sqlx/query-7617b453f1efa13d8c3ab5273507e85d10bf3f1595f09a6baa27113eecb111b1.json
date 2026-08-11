@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE envelope\n                SET state = $3,\n                    doc = $4,\n                    trace_context = COALESCE($5, trace_context),\n                    revision = revision + 1,\n                    updated_at = now()\n                WHERE tenant_id = $1 AND id = $2\n                RETURNING\n                    id,\n                    tenant_id,\n                    state,\n                    doc as \"doc!: Json<Value>\",\n                    revision\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "doc!: Json<Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "revision",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7617b453f1efa13d8c3ab5273507e85d10bf3f1595f09a6baa27113eecb111b1"
+}

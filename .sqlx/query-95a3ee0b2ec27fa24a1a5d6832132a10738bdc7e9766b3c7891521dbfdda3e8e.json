@@ -1,0 +1,67 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id,\n                tenant_id,\n                origin_system,\n                idempotency_key,\n                capability,\n                request_hash,\n                envelope_id,\n                created_at\n            FROM idempotency_record\n            WHERE tenant_id = $1\n              AND origin_system = $2\n              AND idempotency_key = $3\n              AND capability = $4\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "origin_system",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "idempotency_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "capability",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "request_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "envelope_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "95a3ee0b2ec27fa24a1a5d6832132a10738bdc7e9766b3c7891521dbfdda3e8e"
+}

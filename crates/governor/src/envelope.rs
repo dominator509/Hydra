@@ -64,7 +64,39 @@ pub struct Transition {
     pub at_rfc3339: String,
 }
 
-pub trait Clock {
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvocationContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_system: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_actor_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_actor_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_binding_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub objective_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
+}
+
+impl InvocationContext {
+    fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
+pub trait Clock: Send + Sync {
     fn now(&self) -> OffsetDateTime;
 }
 
@@ -80,6 +112,8 @@ pub struct ActionEnvelope {
     pub rationale: String,
     pub reversal: Reversal,
     pub blast: BlastRadius,
+    #[serde(default, skip_serializing_if = "InvocationContext::is_empty")]
+    pub invocation: InvocationContext,
     pub state: EnvelopeState,
     pub history: Vec<Transition>,
 }

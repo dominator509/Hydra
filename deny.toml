@@ -3,6 +3,7 @@ all-features = true
 
 [advisories]
 yanked = "deny"
+unmaintained = "workspace"
 
 [bans]
 multiple-versions = "warn"
@@ -11,6 +12,7 @@ wildcards = "deny"
 [licenses]
 allow = [
   "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
   "BSD-3-Clause",
   "CC0-1.0",
   "ISC",
@@ -21,6 +23,9 @@ allow = [
   "Zlib",
 ]
 confidence-threshold = 0.8
+exceptions = [
+  { crate = "webpki-roots@1.0.8", allow = ["CDLA-Permissive-2.0"] },
+]
 
 [licenses.private]
 ignore = true

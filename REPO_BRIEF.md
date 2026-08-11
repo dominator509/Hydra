@@ -8,7 +8,7 @@ Use this file as the fast repo-orientation note before deeper reading. It is int
 
 1. Explicit user instruction
 2. `AGENTS.md`
-3. The single active ExecPlan
+3. The single active ExecPlan identified by `.agent/state/execplan-index.md`
 4. Existing code and tests
 5. `ARCHITECTURE.md`
 6. Relevant `.agent/specs/*`
@@ -19,7 +19,9 @@ Use this file as the fast repo-orientation note before deeper reading. It is int
 - `AGENTS.md`
 - `COMMANDS.md`
 - `.agent/PLANS.md`
+- `.agent/state/execplan-index.md`
 - Active ExecPlan in `.agent/execplans/`
+- `NEXUS_INTEGRATION_AUDIT.md` and `.agent/specs/SPEC-010-nexus-interoperability.md` when Nexus or external trust is in scope
 - `PROJECT_BRIEF.md`
 - `DECISIONS.md` when dependency or runtime choices are in scope
 
@@ -30,6 +32,8 @@ Use this file as the fast repo-orientation note before deeper reading. It is int
 3. Validate after each milestone.
 4. Update the ExecPlan progress and decision log as you go.
 5. End with `bash scripts/verify.sh` and confirm `verify: ok`.
+
+For EP-011 and later, also run `bash scripts/check-execplan-state.sh` and require `execplan state: ok` before changing the active plan.
 
 ## Important Roots
 

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                doc as \"doc!: Json<Value>\",\n                revision\n            FROM envelope\n            WHERE tenant_id = $1 AND id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "doc!: Json<Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "revision",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "1600fd4c0f3e72ed7fd5e72fcccdb45e146a3d8f762aba49a95a24c1a05eee93"
+}

@@ -31,7 +31,7 @@ fi
 RESTORE_DB="hydra_restore_check"
 
 # Drop and recreate the restore-check database to start clean.
-dropdb --if-exists "$RESTORE_DB" 2>/dev/null || true
+dropdb --if-exists "$RESTORE_DB" 2>/dev/null
 createdb "$RESTORE_DB"
 
 pg_restore --no-owner --dbname="$RESTORE_DB" "$DUMP_FILE" 2>&1

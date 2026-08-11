@@ -11,9 +11,9 @@ use axum::routing::{get, post};
 use axum::Router;
 use uuid::Uuid;
 
-use fabric::{AuthCtx, Session};
 use crate::csrf::CsrfToken;
 use crate::flash::FlashMessage;
+use fabric::{AuthCtx, Session};
 
 pub fn router(state: fabric::AppState) -> Router {
     Router::new()
@@ -126,8 +126,8 @@ pub fn verify_csrf_cookie(headers: &HeaderMap, form_token: &str) -> Result<(), F
         .find_map(|pair| pair.strip_prefix("hydra-csrf="))
         .ok_or_else(|| FlashMessage::error("no CSRF cookie found"))?;
 
-    let token =
-        CsrfToken::from_cookie(csrf_value).ok_or_else(|| FlashMessage::error("invalid CSRF cookie value"))?;
+    let token = CsrfToken::from_cookie(csrf_value)
+        .ok_or_else(|| FlashMessage::error("invalid CSRF cookie value"))?;
 
     if token.valid(form_token) {
         Ok(())

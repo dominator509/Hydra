@@ -2,12 +2,19 @@
 # Stage 1: Builder
 FROM rust:1.96.1-slim AS builder
 
+ARG WASM_TOOLS_VERSION=1.240.0
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+RUN rustup target add wasm32-wasip2 \
+    && cargo install wasm-tools --locked --version "${WASM_TOOLS_VERSION}"
+
 WORKDIR /app
 COPY . .
+
+ENV SQLX_OFFLINE=true
 
 # Build the kernel binary
 RUN cargo build --release -p hydra-kernel
@@ -33,9 +40,6 @@ COPY --from=builder /app/adapters /app/adapters
 
 # Copy SQL migrations
 COPY --from=builder /app/migrations /app/migrations
-
-# Copy static assets (if any)
-COPY --from=builder /app/static /app/static
 
 # Copy WIT world files
 COPY --from=builder /app/wit /app/wit

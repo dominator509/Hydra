@@ -12,9 +12,11 @@ axum.workspace = true
 cdm = { path = "../cdm", version = "0.1.0" }
 governor = { path = "../governor", version = "0.1.0" }
 hmac = { version = "0.12.1" }
+jsonwebtoken.workspace = true
 password-hash.workspace = true
 rand_core.workspace = true
 reqwest.workspace = true
+rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -23,10 +25,12 @@ store = { path = "../store", version = "0.1.0" }
 thiserror.workspace = true
 tokenkiller = { path = "../tokenkiller", version = "0.1.0" }
 time.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+jsonschema.workspace = true
 reqwest.workspace = true
 sqlx.workspace = true
 tokio.workspace = true

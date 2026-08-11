@@ -1,5 +1,6 @@
 //! layer L1 domain types, kind registry, and identity proposals.
 
+mod events;
 mod identity;
 mod kinds;
 mod schema;
@@ -9,6 +10,11 @@ use serde_json::Value;
 use thiserror::Error;
 use uuid::Uuid;
 
+pub use events::{
+    hydra_event_v1_schema, EventActorRef, EventActorType, EventContractError, EventDataClass,
+    EventEntityRef, HydraEventEnvelope, HydraEventPayload, HydraEventType,
+    HYDRA_EVENT_SCHEMA_VERSION, HYDRA_EVENT_SOURCE, HYDRA_EVENT_SPEC_VERSION, HYDRA_EVENT_TYPES_V1,
+};
 pub use identity::{proposals, MergeProposal, PartyView};
 pub use kinds::{builtin_kind_names, builtin_kind_schemas};
 pub use schema::KindRegistry;

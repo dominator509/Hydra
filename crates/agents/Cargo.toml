@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 cdm = { path = "../cdm", version = "0.1.0" }
+governor = { path = "../governor", version = "0.1.0" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

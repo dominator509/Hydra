@@ -21,10 +21,6 @@ pass_gate() {
 # Step 1 — verify.sh
 # ---------------------------------------------------------------------------
 gate_verify() {
-  if [ "${VERIFY_SKIP:-0}" = "1" ]; then
-    echo "production-readiness:skip: verify (VERIFY_SKIP=1)"
-    return 0
-  fi
   if [ ! -f scripts/verify.sh ]; then
     fail "verify — scripts/verify.sh not found"
   fi
@@ -36,10 +32,6 @@ gate_verify() {
 # Step 2 — smoke-test.sh
 # ---------------------------------------------------------------------------
 gate_smoke() {
-  if [ "${SMOKE_SKIP:-0}" = "1" ]; then
-    echo "production-readiness:skip: smoke (SMOKE_SKIP=1)"
-    return 0
-  fi
   if [ ! -f scripts/smoke-test.sh ]; then
     fail "smoke — scripts/smoke-test.sh not found"
   fi
@@ -52,8 +44,7 @@ gate_smoke() {
 # ---------------------------------------------------------------------------
 gate_cache_audit() {
   if [ ! -f crates/tokenkiller/tests/replay_corpus.rs ]; then
-    echo "production-readiness:skip: cache-hit-audit (no replay corpus)"
-    return 0
+    fail "cache-hit-audit — replay corpus is required"
   fi
   if [ ! -f scripts/cache-hit-audit.sh ]; then
     fail "cache-hit-audit — scripts/cache-hit-audit.sh not found"
@@ -81,9 +72,17 @@ gate_drills() {
   [ -f "$OPS" ] || fail "drills — $OPS not found"
   NOW=$(date -u +%s)
   for d in D1 D2 D3 D4 D5; do
-    ROW="$(grep -E "^[|]" "$OPS" | grep -E "\|[[:space:]]*$d[[:space:]]*\|" | grep -E "PASS" | tail -1 || true)"
+    if ROW="$(grep -E "^[|]" "$OPS" | grep -E "\|[[:space:]]*$d[[:space:]]*\|" | grep -E "PASS" | tail -1)"; then
+      :
+    else
+      ROW=""
+    fi
     [ -n "$ROW" ] || fail "drill $d — no PASS row in $OPS"
-    DATE="$(printf '%s\n' "$ROW" | grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2}' | head -1 || true)"
+    if DATE="$(printf '%s\n' "$ROW" | grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2}' | head -1)"; then
+      :
+    else
+      DATE=""
+    fi
     [ -n "$DATE" ] || fail "drill $d — PASS row lacks ISO date in $OPS"
     TS=$(date -u -d "$DATE" +%s 2>/dev/null) || fail "drill $d — cannot parse date '$DATE'"
     AGE=$(( (NOW - TS) / 86400 ))

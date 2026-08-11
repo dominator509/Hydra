@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                id,\n                tenant_id,\n                state,\n                doc as \"doc!: Json<Value>\"\n            FROM envelope\n            WHERE tenant_id = $1 AND id = $2\n            FOR UPDATE\n            ",
+  "query": "\n            SELECT\n                id,\n                tenant_id,\n                state,\n                doc as \"doc!: Json<Value>\",\n                revision\n            FROM envelope\n            WHERE tenant_id = $1 AND id = $2\n            FOR UPDATE\n            ",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "ordinal": 3,
         "name": "doc!: Json<Value>",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "revision",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
@@ -34,8 +39,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "59c9c6105787ee0b3320945bf2b14f9be6b3af27ddbad221e0e4568acd6614b9"
+  "hash": "f161fe3fc0af079e724272bce61abacdb94c25b74f0bebed16278deadd824c31"
 }

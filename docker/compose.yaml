@@ -1,33 +1,52 @@
-# docker/compose.yaml — Hydra deployment topology
-# See DEPLOYMENT.md for architecture details.
+# docker/compose.yaml - Hydra standalone and Nexus-connected reference topology
+# See DEPLOYMENT.md and NEXUS_PACKAGE_CONTRACT.md before using this outside dev.
 #
-# Networks:
-#   frontnet     — Caddy ↔ kernel  (TLS termination boundary)
-#   backnet-internal — kernel ↔ postgres, nats, egress-proxy
-#
-# Kernel has NO direct internet access; outbound traffic must go through egress-proxy
-# via HTTP_PROXY / HTTPS_PROXY environment variables.
+# Only Caddy publishes host ports. Kernel, Postgres, and NATS remain on separate
+# internal networks. The egress proxy is the only application-side component
+# attached to an external-egress network.
 
 x-kernel-env: &kernel-env
-  HYDRA_BIND: 0.0.0.0:8080
-  HYDRA_BASE_URL: https://localhost:443
-  DATABASE_URL: postgres://hydra:hydra@postgres:5432/hydra
-  NATS_URL: nats://nats:4222
-  HYDRA_ENV: ${HYDRA_ENV:-development}
-  HYDRA_VAULT_KEY: ${HYDRA_VAULT_KEY:?HYDRA_VAULT_KEY must be set}
-  HTTP_PROXY: http://egress-proxy:8888
-  HTTPS_PROXY: http://egress-proxy:8888
-  NO_PROXY: localhost,127.0.0.1,postgres,nats,kernel,caddy,egress-proxy
+  HYDRA_BIND: "0.0.0.0:8080"
+  HYDRA_BASE_URL: "${HYDRA_BASE_URL:-https://localhost}"
+  HYDRA_ENV: "${HYDRA_ENV:-dev}"
+  DATABASE_URL: "postgres://hydra:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/hydra"
+  NATS_URL: "nats://nats:4222"
+  HYDRA_VAULT_KEY: "${HYDRA_VAULT_KEY:?HYDRA_VAULT_KEY must be set}"
+  DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+  ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+  OPENAI_COMPAT_BASE_URL: "${OPENAI_COMPAT_BASE_URL:-}"
+  OPENAI_COMPAT_MODEL: "${OPENAI_COMPAT_MODEL:-}"
+  TK_HIT_RATIO_TARGET: "${TK_HIT_RATIO_TARGET:-0.97}"
+  TK_OUTPUT_BUDGET_BYTES: "${TK_OUTPUT_BUDGET_BYTES:-16384}"
+  HYDRA_GOVERNOR_MONTHLY_SPEND_CAP_CENTS: "${HYDRA_GOVERNOR_MONTHLY_SPEND_CAP_CENTS:-50000}"
+  HYDRA_GOVERNOR_PII_EGRESS_ALLOWLIST: "${HYDRA_GOVERNOR_PII_EGRESS_ALLOWLIST:-private}"
+  HYDRA_GOVERNOR_BLAST_ENTITIES_CEILING: "${HYDRA_GOVERNOR_BLAST_ENTITIES_CEILING:-250}"
+  HYDRA_GOVERNOR_BLAST_SENDS_CEILING: "${HYDRA_GOVERNOR_BLAST_SENDS_CEILING:-50}"
+  HYDRA_GOVERNOR_BLAST_MONEY_CEILING_CENTS: "${HYDRA_GOVERNOR_BLAST_MONEY_CEILING_CENTS:-250000}"
+  NEXUS_INTEGRATION_ENABLED: "${NEXUS_INTEGRATION_ENABLED:-false}"
+  NEXUS_OIDC_ISSUER: "${NEXUS_OIDC_ISSUER:-}"
+  NEXUS_OIDC_AUDIENCE: "${NEXUS_OIDC_AUDIENCE:-}"
+  NEXUS_OIDC_JWKS_URL: "${NEXUS_OIDC_JWKS_URL:-}"
+  NEXUS_OIDC_PUBLIC_KEY_FILE: "${NEXUS_OIDC_PUBLIC_KEY_FILE:-}"
+  NEXUS_OIDC_ALLOWED_ALGORITHMS: "${NEXUS_OIDC_ALLOWED_ALGORITHMS:-RS256}"
+  NEXUS_ALLOWED_MCP_ORIGINS: "${NEXUS_ALLOWED_MCP_ORIGINS:-}"
+  NEXUS_JWKS_CACHE_SECONDS: "${NEXUS_JWKS_CACHE_SECONDS:-300}"
+  NEXUS_OIDC_CLOCK_SKEW_SECONDS: "${NEXUS_OIDC_CLOCK_SKEW_SECONDS:-30}"
+  NEXUS_MCP_MAX_REQUEST_BYTES: "${NEXUS_MCP_MAX_REQUEST_BYTES:-1048576}"
+  NEXUS_APPROVAL_AUTH_STRENGTHS: "${NEXUS_APPROVAL_AUTH_STRENGTHS:-mfa}"
+  RUST_LOG: "${RUST_LOG:-info,hydra=info}"
+  HTTP_PROXY: "http://egress-proxy:8888"
+  HTTPS_PROXY: "http://egress-proxy:8888"
+  NO_PROXY: "localhost,127.0.0.1,postgres,nats,kernel,caddy,egress-proxy"
 
 services:
-  # --- Kernel (core application) ---
   kernel:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: hydra/kernel:${HYDRA_TAG:-latest}
-    ports:
-      - "${HYDRA_PORT:-8080}:8080"
+    image: "hydra/kernel:${HYDRA_TAG:-latest}"
+    expose:
+      - "8080"
     environment:
       <<: *kernel-env
     volumes:
@@ -37,15 +56,17 @@ services:
         condition: service_healthy
       nats:
         condition: service_started
+      egress-proxy:
+        condition: service_started
     restart: unless-stopped
     networks:
-      - frontnet
-      - backnet-internal
-    # Kernel has no external network access — only internal + egress-proxy
+      - ingress-internal
+      - data-internal
+      - events-internal
+      - proxy-internal
     dns:
       - 127.0.0.11
 
-  # --- Caddy (TLS termination, reverse proxy) ---
   caddy:
     image: caddy:2.8-alpine
     ports:
@@ -56,17 +77,18 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - kernel
+      kernel:
+        condition: service_healthy
     restart: unless-stopped
     networks:
-      - frontnet
+      - ingress-internal
+      - ingress-external
 
-  # --- PostgreSQL ---
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: hydra
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hydra}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
       POSTGRES_USER: hydra
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hydra -d hydra"]
@@ -77,70 +99,74 @@ services:
       - hydra-postgres-data:/var/lib/postgresql/data
     restart: unless-stopped
     networks:
-      - backnet-internal
+      - data-internal
 
-  # --- NATS ---
   nats:
     image: nats:2.10-alpine
-    command: ["-js", "-m", "8222"]
-    ports:
-      - "${NATS_CLIENT_PORT:-4222}:4222"
-      - "${NATS_MON_PORT:-8222}:8222"
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    expose:
+      - "4222"
+      - "8222"
+    volumes:
+      - hydra-nats-data:/data
     restart: unless-stopped
     networks:
-      - backnet-internal
+      - events-internal
 
-  # --- Egress Proxy (tinyproxy) ---
-  # ONLY container with outbound internet access besides Caddy.
-  # All outbound traffic from kernel must route through this proxy.
   egress-proxy:
     image: alpine:3.20
     command:
       - sh
       - -c
-      - |
-        apk add --no-cache tinyproxy
-        cp /etc/tinyproxy/tinyproxy.conf /etc/tinyproxy/tinyproxy.conf.bak
-        cat /etc/tinyproxy/tinyproxy.conf.bak | head -5 > /etc/tinyproxy/tinyproxy.conf
-        echo "User tinyproxy" >> /etc/tinyproxy/tinyproxy.conf
-        echo "Group tinyproxy" >> /etc/tinyproxy/tinyproxy.conf
-        echo "Port 8888" >> /etc/tinyproxy/tinyproxy.conf
-        cat /etc/tinyproxy/tinyproxy.conf.bak | grep -E '^(Listen|Timeout|LogLevel|Syslog|ViaProxyName|DisableViaHeader)' >> /etc/tinyproxy/tinyproxy.conf
-        cat /egress-proxy.conf >> /etc/tinyproxy/tinyproxy.conf
-        exec tinyproxy -d
+      - apk add --no-cache tinyproxy && exec tinyproxy -d -c /egress-proxy.conf
+    expose:
+      - "8888"
     volumes:
       - ./egress-proxy.conf:/egress-proxy.conf:ro
     restart: unless-stopped
     networks:
-      - backnet-internal
+      - proxy-internal
+      - egress-external
 
-  # --- Migrate (one-shot, profile=ops) ---
   migrate:
-    profile:
+    profiles:
       - ops
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: hydra/kernel:${HYDRA_TAG:-latest}
+    image: "hydra/kernel:${HYDRA_TAG:-latest}"
     environment:
-      <<: *kernel-env
-    command: ["/app/hydra-kernel", "--migrate"]
+      DATABASE_URL: "postgres://hydra:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/hydra"
+    command: ["--migrate"]
     depends_on:
       postgres:
         condition: service_healthy
     networks:
-      - backnet-internal
-    # Migrate uses the same image as kernel but exits after running migrations
+      - data-internal
 
 volumes:
   hydra-postgres-data:
+  hydra-nats-data:
   hydra-kernel-data:
   caddy-data:
   caddy-config:
 
 networks:
-  frontnet:
-    driver: bridge
-  backnet-internal:
+  ingress-internal:
     driver: bridge
     internal: true
+  data-internal:
+    driver: bridge
+    internal: true
+  events-internal:
+    name: "${HYDRA_EVENTS_NETWORK:-hydra-events}"
+    driver: bridge
+    internal: true
+    attachable: true
+  proxy-internal:
+    driver: bridge
+    internal: true
+  ingress-external:
+    driver: bridge
+  egress-external:
+    driver: bridge

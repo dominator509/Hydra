@@ -4,10 +4,7 @@ fn four_eyes_proposer_cannot_approve_own_envelope() {
     // This is enforced in EnvelopeService.approve
     let proposer = "user:alice";
     let approver = "user:alice"; // same person
-    assert_eq!(
-        proposer, approver,
-        "four-eyes should detect same principal"
-    );
+    assert_eq!(proposer, approver, "four-eyes should detect same principal");
 
     let different_approver = "user:bob";
     assert_ne!(

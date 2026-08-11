@@ -13,7 +13,7 @@ jobs:
       NATS_URL: nats://127.0.0.1:4222
       HYDRA_BIND: 127.0.0.1:8080
       HYDRA_BASE_URL: http://127.0.0.1:8080
-      HYDRA_ENV: ci
+      HYDRA_ENV: dev
       HYDRA_VAULT_KEY: CI_VAULT_KEY_PLACEHOLDER
       RUST_LOG: info,hydra=debug
       TK_HIT_RATIO_TARGET: "0.97"
@@ -33,14 +33,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      nats:
-        image: nats:2.10-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --entrypoint nats-server
-
     steps:
       - uses: actions/checkout@v4
 
@@ -50,25 +42,33 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Start JetStream
+        run: |
+          docker run --detach --name hydra-nightly-nats --publish 4222:4222 --publish 8222:8222 nats:2.10-alpine -js -m 8222
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8222/jsz >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          docker logs hydra-nightly-nats
+          exit 1
+
       - name: Install repo toolchain
         run: bash scripts/install.sh
 
       - id: verify
         name: Verify workspace
         run: bash scripts/verify.sh
-        continue-on-error: true
 
       - id: conformance
         name: Run conformance (ignored tests)
         run: |
-          cargo test -p bridge-host --test conformance -- --ignored --nocapture 2>&1 || true
+          cargo test -p bridge-host --test conformance -- --ignored --nocapture
           echo "## Conformance (ignored) results" >> $GITHUB_STEP_SUMMARY
-          echo "See log above. Soak tests (c9) are expected to pass on nightly hardware." >> $GITHUB_STEP_SUMMARY
+          echo "Required nightly soak tests passed." >> $GITHUB_STEP_SUMMARY
 
       - id: cache-hit-audit
         name: Cache-hit audit
         run: bash scripts/cache-hit-audit.sh
-        continue-on-error: true
 
       - name: Job summary
         if: always()

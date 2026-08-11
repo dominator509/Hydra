@@ -9,6 +9,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::{AgentCapabilityAvailability, AgentCapabilityDescriptor};
+
 /// Error type for agent-level failures.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AgentError {
@@ -57,6 +59,18 @@ pub enum LoopStep {
 pub struct BridgeEngineer;
 
 impl BridgeEngineer {
+    pub fn capability() -> AgentCapabilityDescriptor {
+        AgentCapabilityDescriptor {
+            name: "hydra.agent.bridge_engineer.deploy_proposal".to_owned(),
+            availability: AgentCapabilityAvailability::Unavailable,
+            envelope_only: true,
+            reason: Some(
+                "adapter synthesis stops at SynthesisNotImplemented; no deploy envelope is produced"
+                    .to_owned(),
+            ),
+        }
+    }
+
     /// Run the full engineering loop for the given adapter target.
     ///
     /// Each step is driven by the returned `LoopStep` sequence. The `Synthesize`
@@ -93,10 +107,7 @@ impl BridgeEngineer {
                         "LLM synthesis not yet implemented; bridge_codegen route is pending".into(),
                     ));
                 }
-                LoopStep::Conform
-                | LoopStep::Wire
-                | LoopStep::Canary
-                | LoopStep::Draft => {
+                LoopStep::Conform | LoopStep::Wire | LoopStep::Canary | LoopStep::Draft => {
                     // Unreachable until Synthesize is wired.
                     return Err(AgentError::Internal(format!(
                         "step {step:?} reached without synthesis"
@@ -140,10 +151,7 @@ mod tests {
     #[test]
     fn test_discover_empty_target() {
         let result = BridgeEngineer::run("");
-        assert!(matches!(
-            result,
-            Err(AgentError::DiscoveryFailed(_))
-        ));
+        assert!(matches!(result, Err(AgentError::DiscoveryFailed(_))));
     }
 
     #[test]

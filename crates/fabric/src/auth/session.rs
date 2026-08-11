@@ -41,13 +41,12 @@ impl SessionStore {
             return Err(FabricError::AuthzDenied);
         }
 
-        let role_rows = sqlx::query(
-            r#"SELECT role FROM hydra_role WHERE user_id = $1 AND tenant_id = $2"#,
-        )
-        .bind(user_id)
-        .bind(tenant_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let role_rows =
+            sqlx::query(r#"SELECT role FROM hydra_role WHERE user_id = $1 AND tenant_id = $2"#)
+                .bind(user_id)
+                .bind(tenant_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         let roles: Vec<Role> = role_rows
             .into_iter()
@@ -113,12 +112,10 @@ impl SessionStore {
                     })
                     .collect();
 
-                sqlx::query(
-                    r#"UPDATE hydra_session SET last_seen_at = now() WHERE token = $1"#,
-                )
-                .bind(&session_token)
-                .execute(&self.pool)
-                .await?;
+                sqlx::query(r#"UPDATE hydra_session SET last_seen_at = now() WHERE token = $1"#)
+                    .bind(&session_token)
+                    .execute(&self.pool)
+                    .await?;
 
                 Ok(Some(Session {
                     user_id,

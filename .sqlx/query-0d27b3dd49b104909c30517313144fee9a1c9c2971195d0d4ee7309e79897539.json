@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id,\n                provider,\n                external_tenant_id,\n                external_business_id,\n                hydra_tenant_id,\n                status,\n                created_at,\n                updated_at\n            FROM external_tenant_binding\n            WHERE hydra_tenant_id = $1\n            ORDER BY provider, external_tenant_id, external_business_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "provider",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "external_tenant_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "external_business_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "hydra_tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0d27b3dd49b104909c30517313144fee9a1c9c2971195d0d4ee7309e79897539"
+}

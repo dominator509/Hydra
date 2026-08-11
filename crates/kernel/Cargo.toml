@@ -6,11 +6,16 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+agents = { path = "../agents", version = "0.1.0" }
+async-trait.workspace = true
 async-nats.workspace = true
 axum.workspace = true
+bridge-host = { path = "../bridge-host", version = "0.1.0" }
 cdm = { path = "../cdm", version = "0.1.0" }
 fabric = { path = "../fabric", version = "0.1.0" }
 governor = { path = "../governor", version = "0.1.0" }
+jsonschema.workspace = true
+llm-router = { path = "../llm-router", version = "0.1.0" }
 serde_json.workspace = true
 shell = { path = "../shell", version = "0.1.0" }
 store = { path = "../store", version = "0.1.0" }
@@ -18,9 +23,15 @@ sqlx.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
+tokenkiller = { path = "../tokenkiller", version = "0.1.0" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+futures-util.workspace = true
+jsonwebtoken.workspace = true
+reqwest.workspace = true
 
 [lints]
 workspace = true

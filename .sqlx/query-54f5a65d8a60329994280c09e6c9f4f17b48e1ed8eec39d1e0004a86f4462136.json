@@ -1,0 +1,96 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH candidates AS (\n                SELECT id\n                FROM outbox\n                WHERE published_at IS NULL\n                  AND parked_at IS NULL\n                  AND (\n                      claimed_at IS NULL\n                      OR claimed_at < now() - ($2::bigint * interval '1 second')\n                  )\n                ORDER BY id\n                LIMIT $1\n                FOR UPDATE SKIP LOCKED\n            )\n            UPDATE outbox AS target\n            SET claim_token = $3,\n                claimed_at = now(),\n                attempt_count = target.attempt_count + 1,\n                last_error = NULL\n            FROM candidates\n            WHERE target.id = candidates.id\n            RETURNING\n                target.id,\n                target.event_id,\n                target.subject,\n                target.event as \"event!: Json<Value>\",\n                target.created_at,\n                target.published_at,\n                target.attempt_count,\n                target.last_error,\n                target.parked_at,\n                target.jetstream_sequence,\n                target.claim_token,\n                target.claimed_at,\n                target.trace_context as \"trace_context: Json<Value>\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "subject",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event!: Json<Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "published_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "attempt_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "parked_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "jetstream_sequence",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "claim_token",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 11,
+        "name": "claimed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "trace_context: Json<Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "54f5a65d8a60329994280c09e6c9f4f17b48e1ed8eec39d1e0004a86f4462136"
+}

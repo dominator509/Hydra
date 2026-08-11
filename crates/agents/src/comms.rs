@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use crate::bridge_engineer::AgentError;
+use crate::{AgentCapabilityAvailability, AgentCapabilityDescriptor};
 
 /// Lightweight notification dispatch.
 ///
@@ -14,6 +15,24 @@ use crate::bridge_engineer::AgentError;
 pub struct Comms;
 
 impl Comms {
+    pub fn draft_capability() -> AgentCapabilityDescriptor {
+        AgentCapabilityDescriptor {
+            name: "hydra.agent.comms.draft".to_owned(),
+            availability: AgentCapabilityAvailability::Available,
+            envelope_only: false,
+            reason: Some("renders a local string draft; it does not deliver messages".to_owned()),
+        }
+    }
+
+    pub fn transport_capability() -> AgentCapabilityDescriptor {
+        AgentCapabilityDescriptor {
+            name: "hydra.agent.comms.send".to_owned(),
+            availability: AgentCapabilityAvailability::Unavailable,
+            envelope_only: true,
+            reason: Some("no SMTP, SES, or other delivery transport is implemented".to_owned()),
+        }
+    }
+
     /// Draft an email by interpolating `vars` into the named `template`.
     ///
     /// Templates use `{{key}}` placeholders. A leading/trailing whitespace
@@ -52,7 +71,7 @@ mod tests {
             "Hello {{name}}, the {{adapter}} bridge is ready.",
             &vars,
         )
-        .unwrap();
+        .expect("email draft should render");
 
         assert_eq!(result, "Hello Alice, the SuiteCRM bridge is ready.");
     }
@@ -62,12 +81,9 @@ mod tests {
         let mut vars = HashMap::new();
         vars.insert("name".into(), "Bob".into());
 
-        let result = Comms::draft_email(
-            "tenant-1",
-            "Hello {{name}}, your code is {{code}}.",
-            &vars,
-        )
-        .unwrap();
+        let result =
+            Comms::draft_email("tenant-1", "Hello {{name}}, your code is {{code}}.", &vars)
+                .expect("email draft should preserve missing placeholders");
 
         assert_eq!(result, "Hello Bob, your code is {{code}}.");
     }
@@ -75,7 +91,8 @@ mod tests {
     #[test]
     fn test_draft_email_empty_template() {
         let vars = HashMap::new();
-        let result = Comms::draft_email("tenant-1", "", &vars).unwrap();
+        let result =
+            Comms::draft_email("tenant-1", "", &vars).expect("empty template should render");
         assert_eq!(result, "");
     }
 
@@ -84,7 +101,8 @@ mod tests {
         let mut vars = HashMap::new();
         vars.insert("val".into(), "  hello  ".into());
 
-        let result = Comms::draft_email("t", "x{{val}}y", &vars).unwrap();
+        let result =
+            Comms::draft_email("t", "x{{val}}y", &vars).expect("trimmed value should render");
         assert_eq!(result, "xhelloy");
     }
 }

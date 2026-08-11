@@ -65,3 +65,6 @@ Migration additive; vault ops idempotent (set overwrites with backup file rotati
 - **`rg dev_stub` empty**: verified manually; `dev_admin_actor_from_headers` was the last remaining dev auth stub export, now annotated.
 - **Integration test expectations**: `bash scripts/security-check.sh` now catches JWT tokens and specific private key types (ED25519, RSA, EC) in tracked files.
 - **Remaining auth work (post-M5)**: Remove dead-code annotations and the actual function bodies once external consumers are confirmed gone. Wire `AuthnFailed` construction into `SessionStore` authentication failures.
+
+## Post-Implementation Reality Check (2026-08-10)
+The M1-M5 checkboxes exceed current security behavior. REST tenant selection still trusts `x-hydra-tenant`; MCP trusts `_meta.x-hydra-tenant`; the token endpoint uses a fixed tenant and hard-coded HMAC key; JWT validation is not an asymmetric OIDC resource-server path; unknown bearer values can become Viewer; tenant mismatch is not rejected by the role check; and rate-limit middleware allows every request. EP-012 replaces this development boundary, while EP-013 supplies immutable approval/four-eyes enforcement.

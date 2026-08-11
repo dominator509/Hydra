@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::env;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use axum::http::{header::AUTHORIZATION, HeaderMap};
+use axum::http::HeaderMap;
 use cdm::Entity;
 use governor::{
     ActionEnvelope, BlastRadius, Cell, Clock, Constitution, Decision, EnvelopeState, Governor,
@@ -19,9 +18,13 @@ use tokenkiller::{
 };
 use uuid::Uuid;
 
-use crate::auth::{AuthCtx, Role, SessionStore};
-use crate::auth::jwt::{TokenClaims, TokenScope, TokenService};
+use crate::auth::{
+    AuthCtx, AuthorizationService, OidcAuthenticator, PrincipalContext, PrincipalType, Role,
+    SessionStore,
+};
+use crate::capabilities::{CapabilityDescriptor, CapabilityRegistry, IdempotencySemantics};
 use crate::error::FabricError;
+use crate::rate::RateLimiter;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -32,6 +35,75 @@ pub struct AppState {
     pub envelopes: Arc<dyn EnvelopeService>,
     pub tk_stats: Arc<dyn TkStatsService>,
     pub concierge: Arc<dyn ConciergeService>,
+    pub authorization: Arc<AuthorizationService>,
+    pub capabilities: Arc<CapabilityRegistry>,
+    pub external_auth: Option<Arc<OidcAuthenticator>>,
+    pub rate_limiter: Arc<RateLimiter>,
+    pub nexus_control_plane: Arc<NexusControlPlaneConfig>,
+    pub event_status: Arc<dyn EventStatusService>,
+    pub allow_development_identity: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct EventInfrastructureStatus {
+    pub available: bool,
+    pub contract_version: Option<String>,
+    pub stream: Option<String>,
+    pub jetstream_acknowledged_publish: bool,
+    pub relay_operational: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[async_trait]
+pub trait EventStatusService: Send + Sync {
+    async fn status(&self) -> Result<EventInfrastructureStatus, FabricError>;
+}
+
+struct UnavailableEventStatusService;
+
+#[async_trait]
+impl EventStatusService for UnavailableEventStatusService {
+    async fn status(&self) -> Result<EventInfrastructureStatus, FabricError> {
+        Ok(EventInfrastructureStatus {
+            available: false,
+            contract_version: None,
+            stream: None,
+            jetstream_acknowledged_publish: false,
+            relay_operational: false,
+            reason: Some("canonical event infrastructure is not configured".to_owned()),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NexusControlPlaneConfig {
+    pub enabled: bool,
+    pub resource: String,
+    pub resource_metadata_url: String,
+    pub authorization_servers: Vec<String>,
+    pub allowed_hosts: Vec<String>,
+    pub allowed_origins: Vec<String>,
+    pub max_request_body_bytes: usize,
+}
+
+impl Default for NexusControlPlaneConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            resource: "http://localhost/mcp".to_owned(),
+            resource_metadata_url: "http://localhost/.well-known/oauth-protected-resource"
+                .to_owned(),
+            authorization_servers: Vec::new(),
+            allowed_hosts: vec![
+                "localhost".to_owned(),
+                "127.0.0.1".to_owned(),
+                "::1".to_owned(),
+            ],
+            allowed_origins: Vec::new(),
+            max_request_body_bytes: 1_048_576,
+        }
+    }
 }
 
 impl AppState {
@@ -52,7 +124,49 @@ impl AppState {
             envelopes,
             tk_stats,
             concierge,
+            authorization: Arc::new(AuthorizationService::default()),
+            capabilities: Arc::new(CapabilityRegistry::default()),
+            external_auth: None,
+            rate_limiter: Arc::new(RateLimiter::new(60, 60)),
+            nexus_control_plane: Arc::new(NexusControlPlaneConfig::default()),
+            event_status: Arc::new(UnavailableEventStatusService),
+            allow_development_identity: false,
         }
+    }
+
+    pub fn with_authorization(mut self, authorization: Arc<AuthorizationService>) -> Self {
+        self.authorization = authorization;
+        self
+    }
+
+    pub fn with_capabilities(mut self, capabilities: Arc<CapabilityRegistry>) -> Self {
+        self.capabilities = capabilities;
+        self
+    }
+
+    pub fn with_external_auth(mut self, external_auth: Arc<OidcAuthenticator>) -> Self {
+        self.external_auth = Some(external_auth);
+        self
+    }
+
+    pub fn with_rate_limiter(mut self, rate_limiter: Arc<RateLimiter>) -> Self {
+        self.rate_limiter = rate_limiter;
+        self
+    }
+
+    pub fn with_nexus_control_plane(mut self, config: NexusControlPlaneConfig) -> Self {
+        self.nexus_control_plane = Arc::new(config);
+        self
+    }
+
+    pub fn with_event_status(mut self, event_status: Arc<dyn EventStatusService>) -> Self {
+        self.event_status = event_status;
+        self
+    }
+
+    pub fn with_development_identity(mut self, allowed: bool) -> Self {
+        self.allow_development_identity = allowed;
+        self
     }
 }
 
@@ -66,6 +180,37 @@ pub struct EnvelopeCreateRequest {
     pub rationale: String,
     pub reversal: Reversal,
     pub blast: BlastRadiusDto,
+}
+
+#[derive(Debug, Clone)]
+pub struct GovernedExternalProposal {
+    pub request: EnvelopeCreateRequest,
+    pub idempotency_key: String,
+    pub request_hash: String,
+    pub objective_id: Option<String>,
+    pub task_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvelopeApprovalDecision {
+    Approve,
+    Reject,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EnvelopeApprovalRequest {
+    pub decision: EnvelopeApprovalDecision,
+    #[serde(default)]
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct EnvelopeApprovalReceipt {
+    pub approval_id: Uuid,
+    pub envelope_id: Uuid,
+    pub state: EnvelopeState,
+    pub decision: EnvelopeApprovalDecision,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -155,9 +300,68 @@ pub trait EnvelopeService: Send + Sync {
         request: EnvelopeCreateRequest,
     ) -> Result<ActionEnvelope, FabricError>;
 
-    async fn approve(&self, ctx: &AuthCtx, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError>;
+    async fn get(&self, _tenant: Uuid, _id: Uuid) -> Result<ActionEnvelope, FabricError> {
+        Err(FabricError::CapabilityUnavailable(
+            "tenant-scoped envelope lookup is not wired".to_owned(),
+        ))
+    }
 
-    async fn reject(&self, ctx: &AuthCtx, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError>;
+    async fn propose_external(
+        &self,
+        _principal: &PrincipalContext,
+        _capability: &CapabilityDescriptor,
+        _proposal: GovernedExternalProposal,
+    ) -> Result<ActionEnvelope, FabricError> {
+        Err(FabricError::CapabilityUnavailable(
+            "governed external proposal service is not wired".to_owned(),
+        ))
+    }
+
+    async fn decide_external_approval(
+        &self,
+        _principal: &PrincipalContext,
+        _id: Uuid,
+        _request: EnvelopeApprovalRequest,
+    ) -> Result<EnvelopeApprovalReceipt, FabricError> {
+        Err(FabricError::CapabilityUnavailable(
+            "external approval service is not wired".to_owned(),
+        ))
+    }
+
+    async fn approve(
+        &self,
+        ctx: &AuthCtx,
+        tenant: Uuid,
+        id: Uuid,
+    ) -> Result<ActionEnvelope, FabricError>;
+
+    async fn reject(
+        &self,
+        ctx: &AuthCtx,
+        tenant: Uuid,
+        id: Uuid,
+    ) -> Result<ActionEnvelope, FabricError>;
+}
+
+#[async_trait]
+pub trait GovernorProvider: Send + Sync {
+    async fn governor(&self, tenant: Uuid) -> Result<Arc<Governor>, FabricError>;
+}
+
+#[async_trait]
+pub trait ExecutionDispatcher: Send + Sync {
+    async fn dispatch(&self, token: governor::ExecuteToken) -> Result<(), FabricError>;
+}
+
+struct StaticGovernorProvider {
+    governor: Arc<Governor>,
+}
+
+#[async_trait]
+impl GovernorProvider for StaticGovernorProvider {
+    async fn governor(&self, _tenant: Uuid) -> Result<Arc<Governor>, FabricError> {
+        Ok(self.governor.clone())
+    }
 }
 
 #[async_trait]
@@ -240,12 +444,62 @@ pub trait TkStatsService: Send + Sync {
 
 pub struct StoreEnvelopeService {
     store: store::Store,
-    governor: Governor,
+    governors: Arc<dyn GovernorProvider>,
+    dispatcher: Option<Arc<dyn ExecutionDispatcher>>,
+    authorization: Arc<AuthorizationService>,
 }
 
 impl StoreEnvelopeService {
     pub fn new(store: store::Store, governor: Governor) -> Self {
-        Self { store, governor }
+        Self::with_governor_provider(
+            store,
+            Arc::new(StaticGovernorProvider {
+                governor: Arc::new(governor),
+            }),
+        )
+    }
+
+    pub fn with_governor_provider(
+        store: store::Store,
+        governors: Arc<dyn GovernorProvider>,
+    ) -> Self {
+        Self {
+            store,
+            governors,
+            dispatcher: None,
+            authorization: Arc::new(AuthorizationService::default()),
+        }
+    }
+
+    pub fn with_execution_dispatcher(mut self, dispatcher: Arc<dyn ExecutionDispatcher>) -> Self {
+        self.dispatcher = Some(dispatcher);
+        self
+    }
+
+    pub fn with_authorization(mut self, authorization: Arc<AuthorizationService>) -> Self {
+        self.authorization = authorization;
+        self
+    }
+
+    async fn token_after_human_approval(
+        &self,
+        envelope: &ActionEnvelope,
+    ) -> Result<governor::ExecuteToken, FabricError> {
+        let spend = SpendSnapshot {
+            month_to_date_cents: self
+                .store
+                .ledger
+                .month_to_date_cents(envelope.tenant, month_start())
+                .await?,
+        };
+        let governor = self.governors.governor(envelope.tenant).await?;
+        match governor.authorize_after_human_approval(envelope, &spend) {
+            Decision::Execute(token) => Ok(token),
+            Decision::Block(reason) => Err(FabricError::ConstitutionBlocked(reason)),
+            Decision::SuggestOnly | Decision::Queue => Err(FabricError::Internal(
+                "post-approval Governor returned a non-terminal decision".to_owned(),
+            )),
+        }
     }
 }
 
@@ -273,7 +527,7 @@ impl EnvelopeService for StoreEnvelopeService {
                 .await
                 .map_err(FabricError::from)?,
         };
-        let mut envelope = ActionEnvelope {
+        let envelope = ActionEnvelope {
             id: Uuid::new_v4(),
             tenant,
             domain: request.domain,
@@ -284,64 +538,302 @@ impl EnvelopeService for StoreEnvelopeService {
             rationale: request.rationale,
             reversal: request.reversal,
             blast: request.blast.into(),
+            invocation: governor::InvocationContext::default(),
             state: EnvelopeState::Proposed,
             history: Vec::new(),
         };
 
-        match self.governor.evaluate(&envelope, &spend) {
+        let governor = self.governors.governor(tenant).await?;
+        let decision = governor.evaluate(&envelope, &spend);
+        if let Decision::Block(reason) = &decision {
+            return Err(FabricError::ConstitutionBlocked(reason.clone()));
+        }
+        let mut execute_token = None;
+        let mut envelope = self.store.envelopes.save(tenant, &envelope).await?;
+        match decision {
+            Decision::Block(_) => unreachable!("blocked decisions return before persistence"),
+            Decision::SuggestOnly => {}
+            Decision::Queue => {
+                envelope = self
+                    .store
+                    .envelopes
+                    .transition(
+                        tenant,
+                        envelope.id,
+                        EnvelopeState::PendingApproval,
+                        "governor",
+                        &SystemClock,
+                    )
+                    .await?
+            }
+            Decision::Execute(token) => {
+                envelope = self
+                    .store
+                    .envelopes
+                    .transition(
+                        tenant,
+                        envelope.id,
+                        EnvelopeState::Approved,
+                        "governor",
+                        &SystemClock,
+                    )
+                    .await?;
+                execute_token = Some(token);
+            }
+        }
+
+        if let (Some(dispatcher), Some(token)) = (&self.dispatcher, execute_token) {
+            dispatcher.dispatch(token).await?;
+        }
+
+        Ok(envelope)
+    }
+
+    async fn get(&self, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError> {
+        Ok(self.store.envelopes.get(tenant, id).await?)
+    }
+
+    async fn propose_external(
+        &self,
+        principal: &PrincipalContext,
+        capability: &CapabilityDescriptor,
+        proposal: GovernedExternalProposal,
+    ) -> Result<ActionEnvelope, FabricError> {
+        validate_external_proposal(principal, capability, &proposal)?;
+        let tenant = principal.hydra_tenant_id;
+        let spend = SpendSnapshot {
+            month_to_date_cents: self
+                .store
+                .ledger
+                .month_to_date_cents(tenant, month_start())
+                .await?,
+        };
+        let mut envelope = ActionEnvelope {
+            id: Uuid::new_v4(),
+            tenant,
+            domain: proposal.request.domain,
+            action: proposal.request.action,
+            kind: proposal.request.kind,
+            targets: proposal.request.targets,
+            payload: proposal.request.payload,
+            rationale: proposal.request.rationale,
+            reversal: proposal.request.reversal,
+            blast: proposal.request.blast.into(),
+            invocation: governor::InvocationContext {
+                request_id: Some(principal.correlation.request_id.clone()),
+                correlation_id: Some(principal.correlation.correlation_id.clone()),
+                causation_id: principal.correlation.causation_id.clone(),
+                origin_system: principal.external_provider.clone(),
+                external_actor_id: Some(principal.principal_id.clone()),
+                external_actor_type: Some(principal_type_name(principal.principal_type).to_owned()),
+                external_binding_id: principal.binding_id,
+                objective_id: proposal.objective_id,
+                task_id: proposal.task_id,
+                approval_id: None,
+                idempotency_key: Some(proposal.idempotency_key.clone()),
+            },
+            state: EnvelopeState::Proposed,
+            history: Vec::new(),
+        };
+
+        let governor = self.governors.governor(tenant).await?;
+        let mut execute_token = None;
+        match governor.evaluate(&envelope, &spend) {
             Decision::Block(reason) => return Err(FabricError::ConstitutionBlocked(reason)),
             Decision::SuggestOnly => {}
             Decision::Queue => {
                 envelope.transition(EnvelopeState::PendingApproval, "governor", &SystemClock)?
             }
-            Decision::Execute(_) => {
-                envelope.transition(EnvelopeState::Approved, "governor", &SystemClock)?
+            Decision::Execute(token) => {
+                envelope.transition(EnvelopeState::Approved, "governor", &SystemClock)?;
+                execute_token = Some(token);
             }
         }
 
-        Ok(self.store.envelopes.save(tenant, &envelope).await?)
-    }
+        let resolution = self
+            .store
+            .idempotency
+            .resolve_or_create_envelope_with_trace(
+                store::NewIdempotencyRecord {
+                    tenant_id: tenant,
+                    origin_system: principal
+                        .external_provider
+                        .clone()
+                        .ok_or(FabricError::AuthzDenied)?,
+                    idempotency_key: proposal.idempotency_key,
+                    capability: capability.name.clone(),
+                    request_hash: proposal.request_hash,
+                    envelope_id: envelope.id,
+                },
+                &envelope,
+                Some(&principal.trace),
+            )
+            .await?;
 
-    async fn approve(&self, ctx: &AuthCtx, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError> {
-        ctx.require_role(Role::Approver)?;
-        let mut envelope = self
+        if matches!(&resolution, store::IdempotencyResolution::Recorded(_)) {
+            if let (Some(dispatcher), Some(token)) = (&self.dispatcher, execute_token) {
+                dispatcher.dispatch(token).await?;
+            }
+        }
+
+        Ok(self
             .store
             .envelopes
-            .list(tenant, EnvelopeState::PendingApproval)
-            .await?
-            .into_iter()
-            .find(|e| e.id == id)
-            .ok_or(FabricError::NotFound)?;
+            .get(tenant, resolution.record().envelope_id)
+            .await?)
+    }
+
+    async fn decide_external_approval(
+        &self,
+        principal: &PrincipalContext,
+        id: Uuid,
+        request: EnvelopeApprovalRequest,
+    ) -> Result<EnvelopeApprovalReceipt, FabricError> {
+        let tenant = principal.hydra_tenant_id;
+        let envelope = self.store.envelopes.get(tenant, id).await?;
+        let proposer = envelope
+            .invocation
+            .external_actor_id
+            .as_deref()
+            .ok_or(FabricError::AuthzDenied)?;
+        self.authorization
+            .authorize_external_approval(principal, tenant, proposer)?;
+        let execute_token = if request.decision == EnvelopeApprovalDecision::Approve {
+            Some(self.token_after_human_approval(&envelope).await?)
+        } else {
+            None
+        };
+        let assertion_id = Uuid::new_v4();
+        let assertion = store::NewApprovalAssertion {
+            id: assertion_id,
+            tenant_id: tenant,
+            envelope_id: id,
+            human_actor_id: principal.principal_id.clone(),
+            delegated_by: principal
+                .delegated_by
+                .clone()
+                .ok_or(FabricError::AuthzDenied)?,
+            authentication_strength: principal
+                .authentication_strength
+                .clone()
+                .ok_or(FabricError::AuthzDenied)?,
+            request_id: Some(principal.correlation.request_id.clone()),
+            correlation_id: Some(principal.correlation.correlation_id.clone()),
+            objective_id: envelope.invocation.objective_id.clone(),
+            task_id: envelope.invocation.task_id.clone(),
+            decision: match request.decision {
+                EnvelopeApprovalDecision::Approve => store::ApprovalDecision::Approved,
+                EnvelopeApprovalDecision::Reject => store::ApprovalDecision::Rejected,
+            },
+            comment: request.comment,
+        };
+        let (_, envelope) = self
+            .store
+            .approvals
+            .create_and_transition_with_trace(
+                assertion,
+                &principal.principal_id,
+                &SystemClock,
+                Some(&principal.trace),
+            )
+            .await?;
+        if let (Some(dispatcher), Some(token)) = (&self.dispatcher, execute_token) {
+            dispatcher.dispatch(token).await?;
+        }
+        Ok(EnvelopeApprovalReceipt {
+            approval_id: assertion_id,
+            envelope_id: envelope.id,
+            state: envelope.state,
+            decision: request.decision,
+        })
+    }
+
+    async fn approve(
+        &self,
+        ctx: &AuthCtx,
+        tenant: Uuid,
+        id: Uuid,
+    ) -> Result<ActionEnvelope, FabricError> {
+        ctx.require_role(Role::Approver)?;
+        let envelope = self.store.envelopes.get(tenant, id).await?;
         // Four-eyes: proposer cannot approve their own envelope
-        let proposed_by = envelope.history.first()
+        let proposed_by = envelope
+            .history
+            .first()
             .map(|t| t.actor.as_str())
             .unwrap_or("");
         if ctx.principal == proposed_by {
             return Err(FabricError::AuthzDenied);
         }
-        envelope.transition(EnvelopeState::Approved, &ctx.principal, &SystemClock)?;
-        Ok(self.store.envelopes.save(tenant, &envelope).await?)
+        let token = self.token_after_human_approval(&envelope).await?;
+        let (_, envelope) = self
+            .store
+            .approvals
+            .create_and_transition(
+                store::NewApprovalAssertion {
+                    id: Uuid::new_v4(),
+                    tenant_id: tenant,
+                    envelope_id: id,
+                    human_actor_id: ctx.principal.clone(),
+                    delegated_by: "hydra-local-auth".to_owned(),
+                    authentication_strength: "local-session".to_owned(),
+                    request_id: None,
+                    correlation_id: envelope.invocation.correlation_id.clone(),
+                    objective_id: envelope.invocation.objective_id.clone(),
+                    task_id: envelope.invocation.task_id.clone(),
+                    decision: store::ApprovalDecision::Approved,
+                    comment: None,
+                },
+                &ctx.principal,
+                &SystemClock,
+            )
+            .await?;
+        if let Some(dispatcher) = &self.dispatcher {
+            dispatcher.dispatch(token).await?;
+        }
+        Ok(envelope)
     }
 
-    async fn reject(&self, ctx: &AuthCtx, tenant: Uuid, id: Uuid) -> Result<ActionEnvelope, FabricError> {
+    async fn reject(
+        &self,
+        ctx: &AuthCtx,
+        tenant: Uuid,
+        id: Uuid,
+    ) -> Result<ActionEnvelope, FabricError> {
         ctx.require_role(Role::Approver)?;
-        let mut envelope = self
-            .store
-            .envelopes
-            .list(tenant, EnvelopeState::PendingApproval)
-            .await?
-            .into_iter()
-            .find(|e| e.id == id)
-            .ok_or(FabricError::NotFound)?;
+        let envelope = self.store.envelopes.get(tenant, id).await?;
         // Four-eyes: proposer cannot reject their own envelope
-        let proposed_by = envelope.history.first()
+        let proposed_by = envelope
+            .history
+            .first()
             .map(|t| t.actor.as_str())
             .unwrap_or("");
         if ctx.principal == proposed_by {
             return Err(FabricError::AuthzDenied);
         }
-        envelope.transition(EnvelopeState::Rejected, &ctx.principal, &SystemClock)?;
-        Ok(self.store.envelopes.save(tenant, &envelope).await?)
+        let (_, envelope) = self
+            .store
+            .approvals
+            .create_and_transition(
+                store::NewApprovalAssertion {
+                    id: Uuid::new_v4(),
+                    tenant_id: tenant,
+                    envelope_id: id,
+                    human_actor_id: ctx.principal.clone(),
+                    delegated_by: "hydra-local-auth".to_owned(),
+                    authentication_strength: "local-session".to_owned(),
+                    request_id: None,
+                    correlation_id: envelope.invocation.correlation_id.clone(),
+                    objective_id: envelope.invocation.objective_id.clone(),
+                    task_id: envelope.invocation.task_id.clone(),
+                    decision: store::ApprovalDecision::Rejected,
+                    comment: None,
+                },
+                &ctx.principal,
+                &SystemClock,
+            )
+            .await?;
+        Ok(envelope)
     }
 }
 
@@ -493,8 +985,32 @@ pub struct StoreBridgeService {
 
 impl StoreBridgeService {
     pub fn new(store: store::Store, governor: Governor) -> Self {
+        Self::with_governor_provider(
+            store,
+            Arc::new(StaticGovernorProvider {
+                governor: Arc::new(governor),
+            }),
+        )
+    }
+
+    pub fn with_governor_provider(
+        store: store::Store,
+        governors: Arc<dyn GovernorProvider>,
+    ) -> Self {
         Self {
-            envelopes: StoreEnvelopeService::new(store.clone(), governor),
+            envelopes: StoreEnvelopeService::with_governor_provider(store.clone(), governors),
+            store,
+        }
+    }
+
+    pub fn with_runtime(
+        store: store::Store,
+        governors: Arc<dyn GovernorProvider>,
+        dispatcher: Arc<dyn ExecutionDispatcher>,
+    ) -> Self {
+        Self {
+            envelopes: StoreEnvelopeService::with_governor_provider(store.clone(), governors)
+                .with_execution_dispatcher(dispatcher),
             store,
         }
     }
@@ -805,160 +1321,6 @@ pub fn tenant_from_headers(headers: &HeaderMap) -> Result<Uuid, FabricError> {
         .map_err(|error| FabricError::ValidationFailed(format!("invalid tenant uuid: {error}")))
 }
 
-#[allow(dead_code)]
-pub fn dev_admin_actor_from_headers(headers: &HeaderMap) -> Result<&'static str, FabricError> {
-    if !matches!(env::var("HYDRA_ENV").ok().as_deref(), Some("dev")) {
-        return Err(FabricError::AuthzDenied);
-    }
-
-    let raw = headers
-        .get(AUTHORIZATION)
-        .ok_or(FabricError::AuthzDenied)?
-        .to_str()
-        .map_err(|_| FabricError::AuthzDenied)?;
-
-    if raw.trim() == "Bearer hydra-dev-admin" {
-        Ok("dev-admin")
-    } else {
-        Err(FabricError::AuthzDenied)
-    }
-}
-
-/// Build an AuthCtx from HTTP request headers.
-///
-/// In the current dev-mode implementation, this builds a session with
-/// appropriate roles from the Bearer token. The `hydra-dev-admin` token
-/// gets the `Admin` role; any other Bearer token gets `Viewer`.
-/// Full SessionStore lookup will be added when auth middleware is wired.
-pub fn auth_ctx_from_headers(headers: &HeaderMap) -> AuthCtx {
-    let tenant = tenant_from_headers(headers)
-        .unwrap_or_else(|_| Uuid::parse_str("00000000-0000-0000-0000-000000000001")
-            .expect("dev tenant"));
-
-    let principal = extract_principal(headers);
-
-    // Build a dev-mode session from the Bearer token when present.
-    let session = build_dev_session(headers, tenant, &principal);
-
-    AuthCtx {
-        principal,
-        tenant,
-        session,
-    }
-}
-
-/// Build a dev-mode session from request headers (no SessionStore lookup).
-///
-/// Tries JWT verification for bearer tokens that aren't the dev admin token.
-fn build_dev_session(headers: &HeaderMap, tenant: Uuid, _principal: &str) -> Option<crate::auth::Session> {
-    let token = extract_bearer_token(headers)?;
-
-    // Dev admin token → Admin role
-    if token == "hydra-dev-admin" {
-        return Some(crate::auth::Session {
-            user_id: Uuid::nil(),
-            tenant_id: tenant,
-            username: "admin".into(),
-            roles: vec![Role::Admin],
-            token: token.to_owned(),
-        });
-    }
-
-    // Try JWT verification — on success build session from claims
-    if let Some(jwt_session) = build_jwt_session(token, tenant) {
-        return Some(jwt_session);
-    }
-
-    // Any other Bearer token → Viewer role (authenticated, minimal access)
-    Some(crate::auth::Session {
-        user_id: Uuid::nil(),
-        tenant_id: tenant,
-        username: format!("token:{token}"),
-        roles: vec![Role::Viewer],
-        token: token.to_owned(),
-    })
-}
-
-/// Try to verify a JWT token and build a session from its claims.
-#[allow(unused_variables)]
-fn build_jwt_session(token_str: &str, fallback_tenant: uuid::Uuid) -> Option<crate::auth::Session> {
-    let token_service = TokenService::new(b"dev-secret-key-hydra-ep-006-m4-token!".to_vec());
-    let claims = token_service.verify(token_str).ok()?;
-    let roles = claims_to_roles(&claims);
-    Some(crate::auth::Session {
-        user_id: uuid::Uuid::nil(),
-        tenant_id: claims.aud,
-        username: claims.sub.clone(),
-        roles,
-        token: token_str.into(),
-    })
-}
-
-/// Map JWT token scopes to role grants.
-///
-/// * `admin:bridges` / `admin:autonomy` → `Admin`
-/// * `approve:envelopes` → `Approver`
-/// * `write:envelopes` → `Operator`
-/// * Always includes `Viewer`.
-fn claims_to_roles(claims: &TokenClaims) -> Vec<Role> {
-    let mut roles = vec![Role::Viewer];
-    for scope in TokenScope::parse_all(&claims.scope) {
-        match scope {
-            TokenScope::AdminBridges | TokenScope::AdminAutonomy => {
-                roles.push(Role::Admin);
-            }
-            TokenScope::ApproveEnvelopes => {
-                if !roles.contains(&Role::Approver) {
-                    roles.push(Role::Approver);
-                }
-            }
-            TokenScope::WriteEnvelopes => {
-                if !roles.contains(&Role::Operator) {
-                    roles.push(Role::Operator);
-                }
-            }
-            TokenScope::ReadCdm => {
-                // Viewer already covers read access
-            }
-        }
-    }
-    roles
-}
-
-fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
-    let auth = headers.get(AUTHORIZATION)?.to_str().ok()?;
-    auth.strip_prefix("Bearer ")
-}
-
-fn extract_principal(headers: &HeaderMap) -> String {
-    // Try Bearer token first (REST API)
-    if let Some(auth) = headers.get(AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-    {
-        if let Some(token) = auth.strip_prefix("Bearer ") {
-            // For now, the token IS the principal name in dev mode
-            if token == "hydra-dev-admin" {
-                return "user:admin".into();
-            }
-            return format!("token:{}", &token[..8.min(token.len())]);
-        }
-    }
-
-    // Try session cookie (shell)
-    if let Some(cookie) = headers.get("cookie")
-        .and_then(|v| v.to_str().ok())
-    {
-        for pair in cookie.split(';') {
-            let pair = pair.trim();
-            if let Some(value) = pair.strip_prefix("hydra-session=") {
-                return format!("user:{}", &value[..8.min(value.len())]);
-            }
-        }
-    }
-
-    "anonymous".into()
-}
-
 fn validate_request(request: &EnvelopeCreateRequest) -> Result<(), FabricError> {
     if request.domain.trim().is_empty() {
         return Err(FabricError::ValidationFailed(
@@ -981,6 +1343,68 @@ fn validate_request(request: &EnvelopeCreateRequest) -> Result<(), FabricError> 
         ));
     }
     Ok(())
+}
+
+fn validate_external_proposal(
+    principal: &PrincipalContext,
+    capability: &CapabilityDescriptor,
+    proposal: &GovernedExternalProposal,
+) -> Result<(), FabricError> {
+    validate_request(&proposal.request)?;
+    let Some(binding) = capability.governor_binding.as_ref() else {
+        return Err(FabricError::CapabilityUnavailable(
+            "command capability has no Governor binding".to_owned(),
+        ));
+    };
+    let optional_ids_valid = [
+        proposal.objective_id.as_deref(),
+        proposal.task_id.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .all(|value| !value.trim().is_empty() && value.len() <= 200);
+    if !principal.is_external()
+        || principal.hydra_tenant_id.is_nil()
+        || principal
+            .external_provider
+            .as_deref()
+            .is_none_or(str::is_empty)
+        || principal
+            .external_tenant_id
+            .as_deref()
+            .is_none_or(str::is_empty)
+        || principal
+            .external_business_id
+            .as_deref()
+            .is_none_or(str::is_empty)
+        || principal.binding_id.is_none()
+        || !capability.available
+        || capability.idempotency != IdempotencySemantics::RequiredKey
+        || binding.domain != proposal.request.domain
+        || binding.action != proposal.request.action
+        || binding.kind != proposal.request.kind
+        || proposal.idempotency_key.trim().is_empty()
+        || proposal.idempotency_key.len() > 200
+        || proposal.request_hash.len() != 64
+        || !proposal
+            .request_hash
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        || !optional_ids_valid
+    {
+        return Err(FabricError::AuthzDenied);
+    }
+    Ok(())
+}
+
+fn principal_type_name(principal_type: PrincipalType) -> &'static str {
+    match principal_type {
+        PrincipalType::Human => "human",
+        PrincipalType::NexusService => "nexus_service",
+        PrincipalType::NexusAgent => "nexus_agent",
+        PrincipalType::HydraInternalAgent => "hydra_internal_agent",
+        PrincipalType::LocalHydraUser => "local_hydra_user",
+    }
 }
 
 fn validate_autonomy_cells(cells: &[AutonomyCellDto]) -> Result<(), FabricError> {

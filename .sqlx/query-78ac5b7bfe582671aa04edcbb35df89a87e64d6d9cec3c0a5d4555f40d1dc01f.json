@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE outbox\n            SET last_error = $3,\n                parked_at = CASE WHEN $4 THEN now() ELSE NULL END,\n                claim_token = NULL,\n                claimed_at = NULL\n            WHERE id = $1\n              AND claim_token = $2\n              AND published_at IS NULL\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "78ac5b7bfe582671aa04edcbb35df89a87e64d6d9cec3c0a5d4555f40d1dc01f"
+}

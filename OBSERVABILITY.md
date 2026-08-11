@@ -13,10 +13,12 @@ tracing JSON to stdout. Required fields: ts, level, target, msg, tenant?, envelo
 - events_appended_total ; outbox_lag_seconds
 
 ## Traces
-Span per request/envelope/sync-cycle; agent loop spans carry route + prefix_sha so cache forensics can correlate ratio drops to exact segment changes.
+Span per request/envelope/sync-cycle; agent loop spans carry route + prefix_sha so cache forensics can correlate ratio drops to exact segment changes. Nexus requests accept canonical W3C `traceparent` and bounded `tracestate`; invalid input starts a fresh trace. Fabric, Store, Executor, entity/envelope events, and JetStream headers preserve the trace ID across child spans. Baggage is ignored, and trace carriers remain separate from durable correlation/causation fields.
 
 ## Health/uptime
 /healthz, /readyz as in OPERATIONS; external uptime ping on / every 60s (staging+prod).
+
+The event relay records attempt count, redacted last-error code, lease state, parking time, publish time, and acknowledged JetStream sequence per outbox row. Publication logs may include only event ID and fixed error class, never the canonical payload. In Nexus-connected mode, `/readyz` fails closed unless the canonical stream contract is reachable and the relay is running after a successful iteration. `/v1/nexus/events/status` exposes the same typed availability, contract version, stream name, acknowledgement capability, relay state, and redacted reason. Standalone readiness does not require the Nexus event seam.
 
 ## Dashboards
 1. Golden signals (http, errors, latency). 2. Autonomy (envelope funnel by level, approvals age). 3. Bridges (sync throughput, parked adapters). 4. **TOKENKILLER**: hit-ratio per route vs 0.97 line, hit/miss token area, nuke aborts, spend vs constitution cap.

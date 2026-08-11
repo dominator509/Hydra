@@ -1,6 +1,6 @@
 # .agent/EXECUTION_RULES.md — Consolidated Rules for Lower-Tier Coding Agents
 
-1. ONE ACTIVE EXECPLAN. Work only the plan you were given. Do not open another.
+1. AT MOST ONE ACTIVE EXECPLAN. `.agent/state/execplan-index.md` is the authoritative status ledger. During executable work, operate only on its single `ACTIVE` row; queued and deferred plans are context only. Zero active rows is valid only at the terminal state explicitly checked by `scripts/check-execplan-state.sh`.
 2. NO HIDDEN CONTEXT. Everything you need is in AGENTS.md, COMMANDS.md, the plan, specs, and the repo. If it is not written, read the repo; if still unknown, smallest reversible assumption + Decision Log entry.
 3. NO ROADMAP-ONLY IMPLEMENTATION. ROADMAP.md is strategy. Implementing from it directly is a violation.
 4. CONTINUE BY DEFAULT. Finish the plan start-to-end. Do not ask "should I proceed?".

@@ -321,16 +321,10 @@ fn authz_route_role_mapping_is_documented() {
             notes: "fully public, no auth",
         },
         RouteAuthEntry {
-            method: "POST",
-            path: "/mcp",
-            min_role: None,
-            notes: "fully public, no auth (MCP JSON-RPC)",
-        },
-        RouteAuthEntry {
             method: "GET",
             path: "/v1/tk/ledger",
-            min_role: None,
-            notes: "fully public, no auth (TK stats)",
+            min_role: Some(Role::Viewer),
+            notes: "tenant-scoped operational statistics",
         },
         // ---- Read (Viewer+) ----
         RouteAuthEntry {
@@ -437,12 +431,7 @@ fn authz_route_role_mapping_is_documented() {
     // Verify that each documented route has a consistent role hierarchy.
     for entry in &routes {
         if let Some(ref min_role) = entry.min_role {
-            let valid_roles = [
-                Role::Viewer,
-                Role::Operator,
-                Role::Approver,
-                Role::Admin,
-            ];
+            let valid_roles = [Role::Viewer, Role::Operator, Role::Approver, Role::Admin];
             assert!(
                 valid_roles.contains(min_role),
                 "{} {}: unknown min_role {:?}",
@@ -454,7 +443,7 @@ fn authz_route_role_mapping_is_documented() {
     }
 
     // Verify the total count matches the number of registered routes.
-    assert_eq!(routes.len(), 19, "expected 19 SPEC-003 route entries");
+    assert_eq!(routes.len(), 18, "expected 18 local SPEC-003 route entries");
 }
 
 // ---------------------------------------------------------------------------
@@ -488,7 +477,12 @@ fn authz_multi_role_viewer_plus_operator() {
 
 #[test]
 fn authz_require_admin_fails_for_non_admin() {
-    for ctx in &[viewer_ctx(), operator_ctx(), approver_ctx(), anonymous_ctx()] {
+    for ctx in &[
+        viewer_ctx(),
+        operator_ctx(),
+        approver_ctx(),
+        anonymous_ctx(),
+    ] {
         assert!(
             ctx.require_role(Role::Admin).is_err(),
             "non-admin should be denied Admin role"
@@ -600,7 +594,8 @@ async fn authz_integration_openapi_is_public() -> Result<(), Box<dyn std::error:
 }
 
 #[tokio::test]
-async fn authz_integration_tk_ledger_is_public() -> Result<(), Box<dyn std::error::Error>> {
+async fn authz_integration_tk_ledger_requires_local_identity(
+) -> Result<(), Box<dyn std::error::Error>> {
     if !db_available() {
         eprintln!("skipping: DATABASE_URL not set");
         return Ok(());
@@ -609,17 +604,26 @@ async fn authz_integration_tk_ledger_is_public() -> Result<(), Box<dyn std::erro
     let result = async {
         let (addr, _state) = spawn_test_app(db.pool.clone()).await?;
         let client = reqwest::Client::new();
+        let tenant = Uuid::new_v4();
 
-        // No auth headers required for TK ledger.
         let resp = client
             .get(format!("http://{addr}/v1/tk/ledger?window=1h"))
+            .header("x-hydra-tenant", tenant.to_string())
             .send()
             .await?;
         assert_eq!(
             resp.status(),
-            reqwest::StatusCode::OK,
-            "TK ledger endpoint MUST be public"
+            reqwest::StatusCode::FORBIDDEN,
+            "TK ledger must reject an anonymous tenant selection"
         );
+
+        let authorized = client
+            .get(format!("http://{addr}/v1/tk/ledger?window=1h"))
+            .header("x-hydra-tenant", tenant.to_string())
+            .header("Authorization", "Bearer hydra-dev-admin")
+            .send()
+            .await?;
+        assert_eq!(authorized.status(), reqwest::StatusCode::OK);
 
         Ok::<(), Box<dyn std::error::Error>>(())
     }
@@ -750,6 +754,7 @@ async fn authz_integration_entity_tenant_isolation() -> Result<(), Box<dyn std::
         let created = client
             .post(format!("http://{addr}/v1/entities/party"))
             .header("x-hydra-tenant", tenant_a.to_string())
+            .header("Authorization", "Bearer hydra-dev-admin")
             .json(&serde_json::json!({"display_name": "Alice"}))
             .send()
             .await?
@@ -761,6 +766,7 @@ async fn authz_integration_entity_tenant_isolation() -> Result<(), Box<dyn std::
         let listed = client
             .get(format!("http://{addr}/v1/entities/party?limit=5"))
             .header("x-hydra-tenant", tenant_b.to_string())
+            .header("Authorization", "Bearer hydra-dev-admin")
             .send()
             .await?
             .error_for_status()?
@@ -773,11 +779,9 @@ async fn authz_integration_entity_tenant_isolation() -> Result<(), Box<dyn std::
 
         // Tenant B should get NOT_FOUND trying to fetch tenant A's entity.
         let missing = client
-            .get(format!(
-                "http://{addr}/v1/entities/party/{}",
-                created.id
-            ))
+            .get(format!("http://{addr}/v1/entities/party/{}", created.id))
             .header("x-hydra-tenant", tenant_b.to_string())
+            .header("Authorization", "Bearer hydra-dev-admin")
             .send()
             .await?;
         assert_eq!(
@@ -801,8 +805,8 @@ async fn spawn_test_app(
     pool: sqlx::PgPool,
 ) -> Result<(std::net::SocketAddr, fabric::services::AppState), Box<dyn std::error::Error>> {
     use fabric::services::{
-        demo_governor, AppState, ConciergeServiceImpl, StoreAutonomyService,
-        StoreBridgeService, StoreEnvelopeService, StoreEntityService, StoreTkStatsService,
+        demo_governor, AppState, ConciergeServiceImpl, StoreAutonomyService, StoreBridgeService,
+        StoreEntityService, StoreEnvelopeService, StoreTkStatsService,
     };
 
     let store = Store::new(pool.clone());
@@ -817,7 +821,8 @@ async fn spawn_test_app(
             vec!["concierge".into()],
         )),
         Arc::new(ConciergeServiceImpl),
-    );
+    )
+    .with_development_identity(true);
 
     let router = fabric::app(state.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;

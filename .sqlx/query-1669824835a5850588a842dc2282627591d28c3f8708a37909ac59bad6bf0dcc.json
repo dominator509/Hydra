@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE entity\n            SET deleted_at = now(),\n                version = version + 1,\n                updated_at = now()\n            WHERE tenant_id = $1\n              AND id = $2\n              AND deleted_at IS NULL\n            RETURNING kind, origin, origin_ref, version\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "origin",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "origin_ref",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "1669824835a5850588a842dc2282627591d28c3f8708a37909ac59bad6bf0dcc"
+}

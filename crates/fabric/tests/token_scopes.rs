@@ -3,7 +3,9 @@ use uuid::Uuid;
 
 #[test]
 fn token_scope_parsing_all_valid() {
-    let scopes = TokenScope::parse_all("read:cdm write:envelopes approve:envelopes admin:bridges admin:autonomy");
+    let scopes = TokenScope::parse_all(
+        "read:cdm write:envelopes approve:envelopes admin:bridges admin:autonomy",
+    );
     assert_eq!(scopes.len(), 5);
 }
 
@@ -25,7 +27,11 @@ fn token_roundtrip_sign_and_verify() {
     let claims = TokenClaims::new(
         "user:admin".into(),
         Uuid::nil(),
-        &[TokenScope::ReadCdm, TokenScope::WriteEnvelopes, TokenScope::AdminBridges],
+        &[
+            TokenScope::ReadCdm,
+            TokenScope::WriteEnvelopes,
+            TokenScope::AdminBridges,
+        ],
         1,
     );
     let token = service.sign(&claims).expect("signing should succeed");
@@ -40,9 +46,14 @@ fn token_verification_fails_with_wrong_secret() {
     let service1 = TokenService::new(b"secret-key-number-one-32bytes!!".to_vec());
     let service2 = TokenService::new(b"secret-key-number-two-32bytes!!".to_vec());
 
-    let token = service1.sign(&TokenClaims::new(
-        "user:test".into(), Uuid::nil(), &[TokenScope::ReadCdm], 1,
-    )).expect("sign");
+    let token = service1
+        .sign(&TokenClaims::new(
+            "user:test".into(),
+            Uuid::nil(),
+            &[TokenScope::ReadCdm],
+            1,
+        ))
+        .expect("sign");
 
     assert!(service2.verify(&token).is_err());
 }
@@ -55,7 +66,9 @@ fn token_scope_none_requested_returns_empty() {
 
 #[test]
 fn token_as_str_roundtrip() {
-    let all = TokenScope::parse_all("read:cdm write:envelopes approve:envelopes admin:bridges admin:autonomy");
+    let all = TokenScope::parse_all(
+        "read:cdm write:envelopes approve:envelopes admin:bridges admin:autonomy",
+    );
     for scope in &all {
         let roundtripped = TokenScope::parse_all(scope.as_str());
         assert_eq!(roundtripped.len(), 1);
@@ -64,9 +77,7 @@ fn token_as_str_roundtrip() {
 
 #[test]
 fn token_iat_and_exp_are_valid() {
-    let claims = TokenClaims::new(
-        "user:test".into(), Uuid::nil(), &[], 1,
-    );
+    let claims = TokenClaims::new("user:test".into(), Uuid::nil(), &[], 1);
     assert!(claims.iat > 0);
     assert!(claims.exp > claims.iat);
     assert_eq!(claims.exp - claims.iat, 3600);
@@ -74,8 +85,6 @@ fn token_iat_and_exp_are_valid() {
 
 #[test]
 fn token_with_24h_expiry() {
-    let claims = TokenClaims::new(
-        "user:test".into(), Uuid::nil(), &[], 24,
-    );
+    let claims = TokenClaims::new("user:test".into(), Uuid::nil(), &[], 24);
     assert_eq!(claims.exp - claims.iat, 86400);
 }
