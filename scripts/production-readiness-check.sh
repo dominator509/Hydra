@@ -21,6 +21,10 @@ pass_gate() {
 # Step 1 — verify.sh
 # ---------------------------------------------------------------------------
 gate_verify() {
+  if [ "${INTEGRATION_SKIP:-0}" = "1" ]; then
+    echo "production-readiness:skip: integration (INTEGRATION_SKIP=1)"
+    return 0
+  fi
   if [ "${VERIFY_SKIP:-0}" = "1" ]; then
     echo "production-readiness:skip: verify (VERIFY_SKIP=1)"
     return 0
@@ -51,6 +55,10 @@ gate_smoke() {
 # Step 3 — cache-hit-audit.sh (conditional on replay corpus)
 # ---------------------------------------------------------------------------
 gate_cache_audit() {
+  if [ "${CACHE_AUDIT_SKIP:-0}" = "1" ]; then
+    echo "production-readiness:skip: cache-hit-audit (CACHE_AUDIT_SKIP=1)"
+    return 0
+  fi
   if [ ! -f crates/tokenkiller/tests/replay_corpus.rs ]; then
     echo "production-readiness:skip: cache-hit-audit (no replay corpus)"
     return 0

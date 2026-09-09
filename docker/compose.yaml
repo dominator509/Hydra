@@ -64,6 +64,8 @@ services:
   # --- PostgreSQL ---
   postgres:
     image: postgres:16-alpine
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: hydra
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hydra}
@@ -116,7 +118,7 @@ services:
 
   # --- Migrate (one-shot, profile=ops) ---
   migrate:
-    profile:
+    profiles:
       - ops
     build:
       context: ..
