@@ -126,15 +126,15 @@ HYDRA is production-ready when every section below is green, `bash scripts/produ
 
 | Check | Owner | Date | Result |
 |-------|-------|------|--------|
-| production-readiness-check.sh | djw | TBD | Gate script written; requires drills + staging |
-| Restore drill (D1) | djw | TBD | Awaiting staging — see OPERATIONS.md Drill Evidence table |
-| Rollback drill (D2) | djw | TBD | Awaiting staging — see OPERATIONS.md Drill Evidence table |
-| 24h staging soak (ratio+errors) | djw | TBD | Awaiting staging — see .agent/state/soak-24h.md |
-| Security review | djw | TBD | Code review complete; live scan deferred ([STAGING REQUIRED]) |
-| Performance benchmarks | djw | TBD | Code-level analysis done; measurement deferred ([STAGING REQUIRED]) |
-| Privacy/data review | djw | TBD | Policies verified; export+purge demo deferred ([STAGING REQUIRED]) |
-| Accessibility review | djw | TBD | Template safety verified; full audit deferred ([STAGING REQUIRED]) |
-| Observability verification | djw | TBD | Alerts config verified; synthetic test deferred ([STAGING REQUIRED]) |
+| production-readiness-check.sh | djw | 2026-09-09 | Gate script written; requires drills + staging |
+| Restore drill (D1) | djw | 2026-09-09 | Awaiting staging — see OPERATIONS.md Drill Evidence table |
+| Rollback drill (D2) | djw | 2026-09-09 | Awaiting staging — see OPERATIONS.md Drill Evidence table |
+| 24h staging soak (ratio+errors) | djw | 2026-09-09 | Awaiting staging — see .agent/state/soak-24h.md |
+| Security review | djw | 2026-09-09 | Code review complete; live scan deferred ([STAGING REQUIRED]) |
+| Performance benchmarks | djw | 2026-09-09 | Code-level analysis done; measurement deferred ([STAGING REQUIRED]) |
+| Privacy/data review | djw | 2026-09-09 | Policies verified; export+purge demo deferred ([STAGING REQUIRED]) |
+| Accessibility review | djw | 2026-09-09 | Template safety verified; full audit deferred ([STAGING REQUIRED]) |
+| Observability verification | djw | 2026-09-09 | Alerts config verified; synthetic test deferred ([STAGING REQUIRED]) |
 | Sign-off | djw | | Awaiting human approval |
 
 ## Accepted Risks
