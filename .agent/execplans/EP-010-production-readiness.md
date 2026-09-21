@@ -117,3 +117,21 @@ The final `PARTIALLY PASSED` status remains correct and all staging/human-owned 
 EP-012 through EP-015 corrected the Nexus-specific deficiencies named above: external OIDC/binding auth, enforced rate limiting, governed execution/runtime wiring, canonical acknowledged events, real fake-Nexus E2E, truthful gates, and isolated container packaging now pass local executable checks. This supersedes only the 2026-08-10 description of those code paths, not EP-010's partial status.
 
 Production readiness still fails closed. D1-D5, the 24-hour soak, real IdP/TLS staging, human security/privacy/accessibility review, measured performance, live observability, Postgres/JetStream/secret restore, rollback, retention/export scheduling, and launch sign-off have no PASS evidence. The runtime validates `HYDRA_VAULT_KEY` but does not wire a persisted encrypted vault/production BridgeHost secret source; the reference Caddyfile uses a local CA; binding bootstrap is owner-operated; and no SBOM/signed provenance policy exists. `PRODUCTION_READINESS.md` is the current evidence ledger.
+
+## Post-EP-020 Reality Check (2026-08-11)
+
+EP-018, EP-019, and EP-020 supersede the stale implementation details in the preceding dated paragraphs: the persisted vault is wired into the runtime, governed prebuilt bridge lifecycle is available when explicitly configured, and readiness plus backup/restore helper safety are now locally tested. They do not change EP-010's final status. Real staging restore/rollback, D1-D5 evidence, soak, recovery, live security/privacy/performance/accessibility/observability review, release provenance, and human sign-off remain open.
+
+## Post-EP-021 Reality Check (2026-08-11)
+
+EP-021 adds a repository-defined release policy: explicit BuildKit provenance/SBOM settings, signed digest-attestation wiring, and a static workflow contract check. It also makes nightly ignored-test discovery truthful through a required `c9_soak_10k` wrapper. These are locally verified policy/test changes only; no tag run, image publication, attestation, registry verification, staging drill, or human sign-off occurred. EP-010 remains partial.
+
+## Post-EP-030 Reality Check (2026-08-11)
+
+EP-030 adds the previously absent durable autonomy-freeze control: the local
+confirmation-gated owner CLI freezes a tenant through a Store-owned overlay,
+preserves the matrix for thaw, invalidates the persisted Governor revision,
+and emits the typed canonical freeze event through the outbox. Store, CDM, and
+Kernel tests plus the full local verifier pass. This remains code-level D5
+evidence only; staging execution, in-flight timing observation, and human
+operator evidence remain open, so EP-010 is still PARTIALLY PASSED.

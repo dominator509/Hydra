@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id, tenant_id, context_id, message_id, workflow, request_hash,\n                requester_principal_id, requester_principal_type, correlation_id,\n                causation_id, objective_id, input, status, artifact, history,\n                revision, created_at, updated_at\n            FROM a2a_task\n            WHERE tenant_id = $1 AND message_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "context_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "message_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "workflow",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "request_hash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "requester_principal_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "requester_principal_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "correlation_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "causation_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "objective_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "input",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "artifact",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
+        "name": "history",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 15,
+        "name": "revision",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 17,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a2b715a363483309741d8e05105b1b97bed279425c958e94a89346f7da7bd4ee"
+}

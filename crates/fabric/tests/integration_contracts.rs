@@ -83,11 +83,13 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
         assert!(openapi["paths"]["/v1/entities/{kind}/{id}"].is_object());
         assert!(openapi["paths"]["/v1/envelopes"].is_object());
         assert!(openapi["paths"]["/v1/tk/ledger"].is_object());
+        assert!(openapi["paths"]["/v1/tenant/export"].is_object());
+        assert!(openapi["paths"]["/v1/tenant/retention-preview"].is_object());
         assert!(openapi["paths"]["/v1/nexus/capabilities"].is_object());
         assert!(openapi["paths"]["/v1/nexus/context"].is_object());
         assert_eq!(
             openapi["x-hydra-capabilities"].as_array().map(Vec::len),
-            Some(9)
+            Some(13)
         );
 
         let ping = client
@@ -230,6 +232,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
                     dsn_name: None,
                     fuel: 50_000,
                 },
+                config: serde_json::json!({}),
             })
             .send()
             .await?;
@@ -254,6 +257,7 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
                     dsn_name: Some("suitecrm_dsn".into()),
                     fuel: 50_000,
                 },
+                config: serde_json::json!({}),
             })
             .send()
             .await?
@@ -293,24 +297,16 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
             .header("x-hydra-tenant", &tenant_header)
             .header("Authorization", "Bearer hydra-dev-admin")
             .send()
-            .await?
-            .error_for_status()?
-            .json::<BridgeStatusDto>()
             .await?;
-        assert_eq!(paused_bridge.state, "paused");
-        assert_eq!(paused_bridge.envelope_id, Some(bridge_register.id));
+        assert_eq!(paused_bridge.status(), reqwest::StatusCode::NOT_FOUND);
 
         let resumed_bridge = client
             .post(format!("http://{addr}/v1/bridges/memcrm/resume"))
             .header("x-hydra-tenant", &tenant_header)
             .header("Authorization", "Bearer hydra-dev-admin")
             .send()
-            .await?
-            .error_for_status()?
-            .json::<BridgeStatusDto>()
             .await?;
-        assert_eq!(resumed_bridge.state, "queued");
-        assert_eq!(resumed_bridge.envelope_id, Some(bridge_register.id));
+        assert_eq!(resumed_bridge.status(), reqwest::StatusCode::NOT_FOUND);
 
         let created = client
             .post(format!("http://{addr}/v1/entities/party"))
@@ -470,9 +466,10 @@ async fn contract_openapi_envelope_flow_and_mcp_schema() -> Result<(), Box<dyn s
         let tools = mcp["tools"]
             .as_array()
             .expect("mcp tool schema should expose a tool list");
-        assert_eq!(tools.len(), 9);
-        assert_eq!(tools[0]["name"], "hydra.capabilities.list");
-        assert_eq!(tools[8]["name"], "hydra.envelopes.list");
+        assert_eq!(tools.len(), 13);
+        assert_eq!(tools[0]["name"], "hydra.bridges.deploy");
+        assert_eq!(tools[11]["name"], "hydra.envelopes.get");
+        assert_eq!(tools[12]["name"], "hydra.envelopes.list");
 
         Ok::<(), Box<dyn std::error::Error>>(())
     }

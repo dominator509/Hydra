@@ -22,7 +22,7 @@ jobs:
       TK_OUTPUT_BUDGET_BYTES: "16384"
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6
         env:
           POSTGRES_DB: hydra
           POSTGRES_PASSWORD: hydra
@@ -42,7 +42,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Start JetStream
         run: |
-          docker run --detach --name hydra-ci-nats --publish 4222:4222 --publish 8222:8222 nats:2.10-alpine -js -m 8222
+          docker run --detach --name hydra-ci-nats --publish 4222:4222 --publish 8222:8222 nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927 -js -m 8222
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8222/jsz >/dev/null; then exit 0; fi
             sleep 1
@@ -66,6 +66,7 @@ jobs:
       - name: Validate container package
         run: |
           docker build -f docker/Dockerfile -t hydra/kernel:ci .
+          docker build -f docker/egress-proxy.Dockerfile -t hydra/egress-proxy:ci .
           docker compose -f docker/compose.yaml config
       - name: Verify workspace
         run: bash scripts/verify.sh

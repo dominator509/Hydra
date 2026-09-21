@@ -82,9 +82,11 @@
             <button type="submit" class="btn btn-primary">Sign In</button>
         </form>
 
+        {% if development_mode %}
         <div class="dev-notice">
             Development mode &mdash; any credentials accepted
         </div>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

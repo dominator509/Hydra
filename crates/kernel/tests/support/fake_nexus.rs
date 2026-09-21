@@ -21,6 +21,7 @@ use hydra_kernel::runtime_services::RuntimeServices;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde_json::{json, Value};
 use store::{NewExternalTenantBinding, Store, TestDb};
+use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -89,6 +90,7 @@ impl FakeNexusIssuer {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let server = tokio::spawn(async move { axum::serve(listener, app).await });
+        wait_for_listener(address).await?;
         let issuer = format!("http://{address}");
         Ok(Self {
             jwks_url: format!("{issuer}/.well-known/jwks.json"),
@@ -204,6 +206,16 @@ async fn response_json(response: reqwest::Response) -> Result<Value, HarnessErro
         return Err(format!("fake Nexus HTTP request failed with {status}: {body}").into());
     }
     Ok(serde_json::from_str(&body)?)
+}
+
+async fn wait_for_listener(address: std::net::SocketAddr) -> Result<(), HarnessError> {
+    for _ in 0..200 {
+        if TcpStream::connect(address).await.is_ok() {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    Err(format!("fake Nexus listener {address} did not become ready").into())
 }
 
 pub struct FakeNexusHarness {
@@ -327,6 +339,7 @@ impl FakeNexusHarness {
                 allowed_algorithms: vec![Algorithm::EdDSA],
                 jwks_cache_ttl: Duration::from_secs(300),
                 clock_skew: Duration::from_secs(5),
+                egress_proxy_url: None,
             },
             Arc::new(store.external_bindings.clone()),
         )?);
@@ -385,6 +398,7 @@ impl FakeNexusHarness {
             relay_health,
         ));
         let server = tokio::spawn(async move { axum::serve(listener, fabric::app(state)).await });
+        wait_for_listener(address).await?;
 
         let service_scopes = [
             Scope::CapabilitiesRead,

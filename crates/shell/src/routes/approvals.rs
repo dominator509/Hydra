@@ -1,5 +1,5 @@
 use askama::Template;
-use axum::extract::{Form, Path, State};
+use axum::extract::{Extension, Form, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use governor::{EnvelopeState, Reversal};
@@ -71,10 +71,10 @@ pub struct BatchActionForm {
 
 pub async fn approvals_list(
     State(state): State<fabric::AppState>,
-    headers: HeaderMap,
+    Extension(auth): Extension<fabric::AuthCtx>,
 ) -> impl IntoResponse {
     let token = CsrfToken::generate();
-    let tenant = routes::tenant_or_default(&headers);
+    let tenant = auth.tenant;
 
     let envelopes = match state
         .envelopes
@@ -83,7 +83,7 @@ pub async fn approvals_list(
     {
         Ok(list) => list.into_iter().map(to_envelope_row).collect(),
         Err(e) => {
-            let mut ctx = routes::PageCtx::new("Approvals", "approvals", &headers, &token);
+            let mut ctx = routes::PageCtx::new("Approvals", "approvals", Some(auth.tenant), &token);
             ctx = ctx.with_flash(FlashMessage::error(format!(
                 "Failed to load approvals: {e}"
             )));
@@ -111,7 +111,7 @@ pub async fn approvals_list(
         }
     };
 
-    let ctx = routes::PageCtx::new("Approvals", "approvals", &headers, &token);
+    let ctx = routes::PageCtx::new("Approvals", "approvals", Some(auth.tenant), &token);
     let template = ApprovalsTemplate {
         title: ctx.title,
         tenant: ctx.tenant,
@@ -135,6 +135,7 @@ pub async fn approvals_list(
 
 pub async fn approve_envelope(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     Path(id): Path<Uuid>,
     headers: HeaderMap,
     Form(form): Form<ApproveForm>,
@@ -142,10 +143,9 @@ pub async fn approve_envelope(
     if routes::verify_csrf(&headers, &form._csrf_token).is_err() {
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
-    let tenant = routes::tenant_or_default(&headers);
-    let ctx = routes::auth_ctx_from_headers(&headers);
+    let tenant = auth.tenant;
 
-    match state.envelopes.approve(&ctx, tenant, id).await {
+    match state.envelopes.approve(&auth, tenant, id).await {
         Ok(envelope) => {
             let row = to_envelope_row(envelope);
             let t = ApprovalRowTemplate {
@@ -171,6 +171,7 @@ pub async fn approve_envelope(
 
 pub async fn reject_envelope(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     Path(id): Path<Uuid>,
     headers: HeaderMap,
     Form(form): Form<ApproveForm>,
@@ -178,10 +179,9 @@ pub async fn reject_envelope(
     if routes::verify_csrf(&headers, &form._csrf_token).is_err() {
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
-    let tenant = routes::tenant_or_default(&headers);
-    let ctx = routes::auth_ctx_from_headers(&headers);
+    let tenant = auth.tenant;
 
-    match state.envelopes.reject(&ctx, tenant, id).await {
+    match state.envelopes.reject(&auth, tenant, id).await {
         Ok(envelope) => {
             let row = to_envelope_row(envelope);
             let t = ApprovalRowTemplate {
@@ -207,14 +207,14 @@ pub async fn reject_envelope(
 
 pub async fn batch_approve(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     headers: HeaderMap,
     Form(form): Form<BatchActionForm>,
 ) -> impl IntoResponse {
     if routes::verify_csrf(&headers, &form._csrf_token).is_err() {
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
-    let tenant = routes::tenant_or_default(&headers);
-    let ctx = routes::auth_ctx_from_headers(&headers);
+    let tenant = auth.tenant;
 
     let envelopes = match state
         .envelopes
@@ -229,7 +229,7 @@ pub async fn batch_approve(
     for envelope in &envelopes {
         if state
             .envelopes
-            .approve(&ctx, tenant, envelope.id)
+            .approve(&auth, tenant, envelope.id)
             .await
             .is_ok()
         {
@@ -238,7 +238,7 @@ pub async fn batch_approve(
     }
 
     let token = CsrfToken::generate();
-    let ctx = routes::PageCtx::new("Approvals", "approvals", &headers, &token);
+    let ctx = routes::PageCtx::new("Approvals", "approvals", Some(auth.tenant), &token);
     let flash = vec![FlashMessage::success(format!(
         "{approved} envelope(s) approved"
     ))];
@@ -275,14 +275,14 @@ pub async fn batch_approve(
 
 pub async fn batch_reject(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     headers: HeaderMap,
     Form(form): Form<BatchActionForm>,
 ) -> impl IntoResponse {
     if routes::verify_csrf(&headers, &form._csrf_token).is_err() {
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
-    let tenant = routes::tenant_or_default(&headers);
-    let ctx = routes::auth_ctx_from_headers(&headers);
+    let tenant = auth.tenant;
 
     let envelopes = match state
         .envelopes
@@ -297,7 +297,7 @@ pub async fn batch_reject(
     for envelope in &envelopes {
         if state
             .envelopes
-            .reject(&ctx, tenant, envelope.id)
+            .reject(&auth, tenant, envelope.id)
             .await
             .is_ok()
         {
@@ -306,7 +306,7 @@ pub async fn batch_reject(
     }
 
     let token = CsrfToken::generate();
-    let ctx = routes::PageCtx::new("Approvals", "approvals", &headers, &token);
+    let ctx = routes::PageCtx::new("Approvals", "approvals", Some(auth.tenant), &token);
     let flash = vec![FlashMessage::success(format!(
         "{rejected} envelope(s) rejected"
     ))];
@@ -343,9 +343,9 @@ pub async fn batch_reject(
 
 pub async fn approvals_count(
     State(state): State<fabric::AppState>,
-    headers: HeaderMap,
+    Extension(auth): Extension<fabric::AuthCtx>,
 ) -> impl IntoResponse {
-    let tenant = routes::tenant_or_default(&headers);
+    let tenant = auth.tenant;
     let count = match state
         .envelopes
         .list(tenant, EnvelopeState::PendingApproval)

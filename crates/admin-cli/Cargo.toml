@@ -1,0 +1,16 @@
+[package]
+name = "hydra-admin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+fabric = { path = "../fabric", version = "0.1.0" }
+store = { path = "../store", version = "0.1.0" }
+tokio.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,99 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO bridge_adapter (\n                tenant_id,\n                adapter_id,\n                component_ref,\n                component_sha256,\n                grant_config,\n                config\n            )\n            VALUES ($1, $2, $3, $4, $5, $6)\n            RETURNING\n                id,\n                tenant_id,\n                adapter_id,\n                component_ref,\n                component_sha256,\n                grant_config,\n                config,\n                descriptor,\n                state,\n                last_error,\n                revision,\n                created_at,\n                updated_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "adapter_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "component_ref",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "component_sha256",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "grant_config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "descriptor",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "revision",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "fec087342b94dfa854b619cfee5c803db9ff17c7aa3c6e4fd77577d0b94633c9"
+}

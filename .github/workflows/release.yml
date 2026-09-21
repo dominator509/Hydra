@@ -32,7 +32,7 @@ jobs:
       TK_OUTPUT_BUDGET_BYTES: "16384"
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6
         env:
           POSTGRES_DB: hydra
           POSTGRES_PASSWORD: hydra
@@ -52,7 +52,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Start JetStream
         run: |
-          docker run --detach --name hydra-release-nats --publish 4222:4222 --publish 8222:8222 nats:2.10-alpine -js -m 8222
+          docker run --detach --name hydra-release-nats --publish 4222:4222 --publish 8222:8222 nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927 -js -m 8222
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8222/jsz >/dev/null; then exit 0; fi
             sleep 1
@@ -68,8 +68,16 @@ jobs:
     name: Build and push Docker image
     needs: verify
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     env:
       REGISTRY: ${{ vars.REGISTRY || secrets.REGISTRY || 'ghcr.io' }}
+    outputs:
+      image_digest: ${{ steps.push.outputs.digest }}
+      egress_image_digest: ${{ steps.push-egress.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -85,16 +93,45 @@ jobs:
         id: tag
         run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
       - name: Build and push
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
           push: true
+          provenance: mode=max
+          sbom: true
           tags: |
             ${{ env.REGISTRY }}/hydra/kernel:${{ steps.tag.outputs.tag }}
-            ${{ env.REGISTRY }}/hydra/kernel:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Attest image provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/hydra/kernel
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+      - name: Build and push egress proxy
+        id: push-egress
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/egress-proxy.Dockerfile
+          push: true
+          provenance: mode=max
+          sbom: true
+          tags: |
+            ${{ env.REGISTRY }}/hydra/egress-proxy:${{ steps.tag.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Attest egress proxy provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/hydra/egress-proxy
+          subject-digest: ${{ steps.push-egress.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
 
   deploy-staging:
     name: Deploy to staging
@@ -116,3 +153,7 @@ jobs:
           STAGING_HOST: ${{ secrets.STAGING_HOST }}
           STAGING_USER: ${{ secrets.STAGING_USER }}
           STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+          STAGING_DIGEST: ${{ needs.build-and-push.outputs.image_digest }}
+          STAGING_EGRESS_DIGEST: ${{ needs.build-and-push.outputs.egress_image_digest }}
+          STAGING_SMOKE_URL: ${{ secrets.STAGING_SMOKE_URL }}

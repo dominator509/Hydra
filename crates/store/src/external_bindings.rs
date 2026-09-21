@@ -4,6 +4,14 @@ use uuid::Uuid;
 
 use crate::StoreError;
 
+pub const EXTERNAL_BINDING_TEXT_MAX_LENGTH: usize = 512;
+
+pub fn is_valid_external_binding_text(value: &str) -> bool {
+    !value.trim().is_empty()
+        && value.chars().count() <= EXTERNAL_BINDING_TEXT_MAX_LENGTH
+        && !value.chars().any(|character| character.is_control())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BindingStatus {
     Active,
@@ -63,9 +71,9 @@ impl NewExternalTenantBinding {
             ("external_tenant_id", self.external_tenant_id.as_str()),
             ("external_business_id", self.external_business_id.as_str()),
         ] {
-            if value.trim().is_empty() {
+            if !is_valid_external_binding_text(value) {
                 return Err(StoreError::Invariant(format!(
-                    "external binding {name} cannot be empty"
+                    "external binding {name} must be non-empty, control-free, and at most {EXTERNAL_BINDING_TEXT_MAX_LENGTH} characters"
                 )));
             }
         }
@@ -141,6 +149,17 @@ impl ExternalBindingsRepo {
         external_tenant_id: &str,
         external_business_id: &str,
     ) -> Result<Option<ExternalTenantBinding>, StoreError> {
+        for (name, value) in [
+            ("provider", provider),
+            ("external_tenant_id", external_tenant_id),
+            ("external_business_id", external_business_id),
+        ] {
+            if !is_valid_external_binding_text(value) {
+                return Err(StoreError::Invariant(format!(
+                    "external binding {name} lookup value is invalid"
+                )));
+            }
+        }
         let row = sqlx::query_as!(
             BindingRow,
             r#"
@@ -172,6 +191,11 @@ impl ExternalBindingsRepo {
         &self,
         hydra_tenant_id: Uuid,
     ) -> Result<Vec<ExternalTenantBinding>, StoreError> {
+        if hydra_tenant_id.is_nil() {
+            return Err(StoreError::Invariant(
+                "external binding hydra_tenant_id cannot be nil".to_owned(),
+            ));
+        }
         let rows = sqlx::query_as!(
             BindingRow,
             r#"
@@ -241,4 +265,20 @@ fn row_to_binding(row: BindingRow) -> Result<ExternalTenantBinding, StoreError> 
         created_at: row.created_at,
         updated_at: row.updated_at,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_valid_external_binding_text, EXTERNAL_BINDING_TEXT_MAX_LENGTH};
+
+    #[test]
+    fn external_binding_text_is_bounded_and_control_free() {
+        assert!(is_valid_external_binding_text("nexus"));
+        assert!(is_valid_external_binding_text("租户-1"));
+        assert!(!is_valid_external_binding_text(" "));
+        assert!(!is_valid_external_binding_text("tenant\n1"));
+        assert!(!is_valid_external_binding_text(
+            &"租".repeat(EXTERNAL_BINDING_TEXT_MAX_LENGTH + 1)
+        ));
+    }
 }

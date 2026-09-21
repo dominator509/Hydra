@@ -164,6 +164,125 @@ async fn regress_autonomy_matrix_restores_specificity() -> Result<(), Box<dyn st
     result
 }
 
+#[tokio::test]
+async fn autonomy_freeze_demotes_without_destroying_matrix_and_is_idempotent(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let db = TestDb::new().await?;
+
+    let result = async {
+        let tenant = Uuid::new_v4();
+        let other_tenant = Uuid::new_v4();
+        let store = Store::new(db.pool.clone());
+        store
+            .autonomy
+            .upsert_cell(
+                tenant,
+                "pipeline",
+                "move_stage",
+                Some("deal"),
+                Level::L4,
+                &json!({ "batch_max": 2 }),
+            )
+            .await?;
+        store
+            .autonomy
+            .upsert_cell(
+                other_tenant,
+                "pipeline",
+                "move_stage",
+                Some("deal"),
+                Level::L4,
+                &json!({}),
+            )
+            .await?;
+
+        let before = store.autonomy.matrix(tenant).await?;
+        assert_eq!(
+            before.resolve("pipeline", "move_stage", Some("deal")).level,
+            Level::L4
+        );
+        let revision_before = store.autonomy.revision(tenant).await?;
+
+        let frozen = store
+            .autonomy
+            .set_frozen(tenant, true, Some("incident response"), "operator:test")
+            .await?;
+        assert!(frozen.frozen);
+        let frozen_matrix = store.autonomy.matrix(tenant).await?;
+        assert_eq!(
+            frozen_matrix
+                .resolve("pipeline", "move_stage", Some("deal"))
+                .level,
+            Level::L1
+        );
+        assert_eq!(
+            store
+                .autonomy
+                .matrix(other_tenant)
+                .await?
+                .resolve("pipeline", "move_stage", Some("deal"))
+                .level,
+            Level::L4
+        );
+        let revision_after_freeze = store.autonomy.revision(tenant).await?;
+        assert!(revision_after_freeze > revision_before);
+
+        let repeated = store
+            .autonomy
+            .set_frozen(tenant, true, Some("incident response"), "operator:other")
+            .await?;
+        assert_eq!(repeated.actor, "operator:test");
+        assert_eq!(
+            store.autonomy.revision(tenant).await?,
+            revision_after_freeze
+        );
+
+        let thawed = store
+            .autonomy
+            .set_frozen(tenant, false, None, "operator:test")
+            .await?;
+        assert!(!thawed.frozen);
+        assert_eq!(
+            store
+                .autonomy
+                .matrix(tenant)
+                .await?
+                .resolve("pipeline", "move_stage", Some("deal"))
+                .level,
+            Level::L4
+        );
+
+        let event = sqlx::query!(
+            r#"
+            SELECT event_id, kind, payload
+            FROM event_log
+            WHERE tenant_id = $1
+              AND kind = 'hydra.crm.autonomy.freeze_changed.v1'
+            ORDER BY ts
+            "#,
+            tenant,
+        )
+        .fetch_all(&db.pool)
+        .await?;
+        assert_eq!(event.len(), 2);
+        assert_eq!(event[0].kind, "hydra.crm.autonomy.freeze_changed.v1");
+        assert_eq!(event[0].payload["payload"]["status"], "frozen");
+        assert_eq!(event[1].payload["payload"]["status"], "active");
+        let event_id = event[0]
+            .event_id
+            .expect("canonical freeze event has an event id");
+        let outbox = store.outbox.get_by_event_id(event_id).await?;
+        assert_eq!(outbox.subject, "hydra.crm.autonomy.freeze_changed.v1");
+        assert_eq!(outbox.event.event_id, event_id);
+
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+
+    db.cleanup().await?;
+    result
+}
+
 fn envelope(tenant: Uuid) -> ActionEnvelope {
     ActionEnvelope {
         id: Uuid::new_v4(),

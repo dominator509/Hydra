@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT tenant_id, id\n            FROM envelope\n            WHERE state = 'Approved'\n            ORDER BY updated_at ASC, tenant_id, id\n            LIMIT $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e96ef1954a8f31bdca96c7503d0c3ad7b6f42b3017b6b9b64b80dfe7d5f62a12"
+}

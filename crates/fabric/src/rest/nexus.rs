@@ -55,7 +55,7 @@ pub async fn external_auth_middleware(
         "principal:{}:{}",
         principal.hydra_tenant_id, principal.principal_id
     );
-    if let Err(error) = state.rate_limiter.check(&rate_key) {
+    if let Err(error) = state.rate_limiter.check_async(&rate_key).await {
         return error.into_response();
     }
     request.extensions_mut().insert(principal);
@@ -102,6 +102,25 @@ pub async fn propose_stage_change(
     })?;
     let value =
         execute_capability(&state, &principal, "hydra.crm.propose_action", arguments).await?;
+    Ok(Json(value))
+}
+
+pub async fn propose_bridge_sync(
+    State(state): State<AppState>,
+    Extension(principal): Extension<PrincipalContext>,
+    Path(adapter_id): Path<String>,
+    Json(arguments): Json<Value>,
+) -> Result<Json<Value>, FabricError> {
+    let mut arguments = arguments.as_object().cloned().ok_or_else(|| {
+        FabricError::ValidationFailed("proposal body must be a JSON object".to_owned())
+    })?;
+    if arguments.contains_key("adapter_id") {
+        return Err(FabricError::ValidationFailed(
+            "adapter_id is bound by the REST path".to_owned(),
+        ));
+    }
+    arguments.insert("adapter_id".to_owned(), Value::String(adapter_id));
+    let value = execute_capability(&state, &principal, "hydra.bridges.sync", arguments).await?;
     Ok(Json(value))
 }
 

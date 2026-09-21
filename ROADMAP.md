@@ -19,8 +19,8 @@
 | 12 Governed execution | Provenance, idempotency, typed handlers, approvals, real runtime wiring | 11 | Governed mutation and executor tests green | SPEC-010 | EP-013 |
 | 13 Nexus event bridge | Versioned events, JetStream acknowledgements, replay, trace propagation | 12 | Event contract and durable consumer tests green | SPEC-010 | EP-014 |
 | 14 Nexus integration proof | Fake Nexus round trip, truthful gates, standalone/connected deployment profiles | 13 | EP-015 acceptance commands green; no production deploy | SPEC-010 | EP-015 |
-| 15 Optional Nexus model/A2A/skills | Optional Nexus model provider, long-running A2A facade, signed skill discovery | 14 | Deferred until EP-011 through EP-015 pass | future spec | EP-016 (DEFERRED) |
+| 15 Optional Nexus model/A2A/skills | Optional Nexus model provider, long-running A2A facade, signed skill discovery | 14 | Implemented as an optional, fail-closed boundary; unsupported streaming/push and skill execution remain unavailable | SPEC-011 | EP-016 (COMPLETE) |
 
 Production readiness milestone = Phase 9 exit = `scripts/production-readiness-check.sh` → `production readiness: ok`.
 
-The roadmap is strategy only. `.agent/state/execplan-index.md` records current verified status and the single active implementation plan.
+The roadmap is strategy only. `.agent/state/execplan-index.md` records current verified status and the finite program boundary; it is valid for zero active plans after closeout.

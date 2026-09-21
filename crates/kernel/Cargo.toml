@@ -15,11 +15,11 @@ cdm = { path = "../cdm", version = "0.1.0" }
 fabric = { path = "../fabric", version = "0.1.0" }
 governor = { path = "../governor", version = "0.1.0" }
 jsonschema.workspace = true
+serde.workspace = true
 llm-router = { path = "../llm-router", version = "0.1.0" }
 serde_json.workspace = true
 shell = { path = "../shell", version = "0.1.0" }
 store = { path = "../store", version = "0.1.0" }
-sqlx.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
@@ -32,6 +32,7 @@ uuid.workspace = true
 futures-util.workspace = true
 jsonwebtoken.workspace = true
 reqwest.workspace = true
+sqlx.workspace = true
 
 [lints]
 workspace = true

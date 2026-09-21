@@ -83,58 +83,30 @@
         margin-top: 2px;
     }
 
-    .kind-drawer-overlay {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0,0,0,0.4);
-        z-index: 200;
-    }
-
-    .kind-drawer-overlay.active {
-        display: block;
-    }
-
     .kind-drawer {
-        display: none;
-        position: fixed;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        width: 360px;
-        max-width: 90vw;
+        width: min(360px, 100%);
+        margin-top: 12px;
         background: var(--card-bg);
-        box-shadow: -4px 0 20px rgba(0,0,0,0.15);
-        z-index: 201;
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-lg);
         padding: 24px;
         overflow-y: auto;
     }
 
-    .kind-drawer.active {
-        display: block;
+    .kind-drawer-disclosure > summary {
+        display: inline-block;
+        cursor: pointer;
+        list-style: none;
+    }
+
+    .kind-drawer-disclosure > summary::-webkit-details-marker {
+        display: none;
     }
 
     .kind-drawer h3 {
         margin: 0 0 20px 0;
         font-size: 18px;
-    }
-
-    .kind-drawer .drawer-close {
-        float: right;
-        background: none;
-        border: none;
-        font-size: 24px;
-        cursor: pointer;
-        color: var(--text-secondary);
-        padding: 0;
-        line-height: 1;
-    }
-
-    .kind-drawer .drawer-close:hover {
-        color: var(--text-primary);
     }
 
     .kind-override-row {
@@ -270,54 +242,47 @@
 
         <div class="matrix-save-bar">
             <span id="save-result"></span>
-            <button type="button" class="btn btn-outline"
-                    onclick="document.getElementById('kind-drawer').classList.add('active');document.getElementById('kind-overlay').classList.add('active');">
-                Kind Overrides
-            </button>
             <button type="submit" class="btn btn-primary">Save Matrix</button>
         </div>
     </div>
 </form>
 
-<!-- Kind Override Drawer -->
-<div class="kind-drawer-overlay" id="kind-overlay"
-     onclick="document.getElementById('kind-drawer').classList.remove('active');this.classList.remove('active');">
-</div>
-<div class="kind-drawer" id="kind-drawer">
-    <button class="drawer-close"
-            onclick="document.getElementById('kind-drawer').classList.remove('active');document.getElementById('kind-overlay').classList.remove('active');">&times;</button>
-    <h3>Kind Overrides</h3>
-    <p class="text-muted text-small mb-2">
-        Restrict autonomy to a specific entity kind within a domain/action pair.
-    </p>
+<details class="kind-drawer-disclosure">
+    <summary class="btn btn-outline">Kind Overrides</summary>
+    <div class="kind-drawer" id="kind-drawer" role="region" aria-labelledby="kind-overrides-heading">
+        <h3 id="kind-overrides-heading">Kind Overrides</h3>
+        <p class="text-muted text-small mb-2">
+            Restrict autonomy to a specific entity kind within a domain/action pair.
+        </p>
 
-    <form action="/autonomy/save-kinds" method="post"
-          hx-post="/autonomy/save-kinds"
-          hx-target="#save-result"
-          hx-swap="innerHTML">
-        {{ csrf|safe }}
+        <form action="/autonomy/save-kinds" method="post"
+              hx-post="/autonomy/save-kinds"
+              hx-target="#save-result"
+              hx-swap="innerHTML">
+            {{ csrf|safe }}
 
-        {% for row in matrix_rows %}
-        {% for col in row.columns %}
-        {% if col.has_cell %}
-        <div class="kind-override-row">
-            <div class="kind-name">{{ row.domain }} / {{ col.action }}</div>
-            <select name="kind_{{ row.domain }}_{{ col.action }}">
-                <option value="">No override</option>
-                <option value="deal" {% if let Some(kind) = col.kind %}{% if kind == "deal" %}selected{% endif %}{% endif %}>Deal</option>
-                <option value="party" {% if let Some(kind) = col.kind %}{% if kind == "party" %}selected{% endif %}{% endif %}>Party</option>
-                <option value="lead" {% if let Some(kind) = col.kind %}{% if kind == "lead" %}selected{% endif %}{% endif %}>Lead</option>
-                <option value="opportunity" {% if let Some(kind) = col.kind %}{% if kind == "opportunity" %}selected{% endif %}{% endif %}>Opportunity</option>
-                <option value="task" {% if let Some(kind) = col.kind %}{% if kind == "task" %}selected{% endif %}{% endif %}>Task</option>
-            </select>
-        </div>
-        {% endif %}
-        {% endfor %}
-        {% endfor %}
+            {% for row in matrix_rows %}
+            {% for col in row.columns %}
+            {% if col.has_cell %}
+            <div class="kind-override-row">
+                <div class="kind-name">{{ row.domain }} / {{ col.action }}</div>
+                <select name="kind_{{ row.domain }}_{{ col.action }}">
+                    <option value="">No override</option>
+                    <option value="deal" {% if let Some(kind) = col.kind %}{% if kind == "deal" %}selected{% endif %}{% endif %}>Deal</option>
+                    <option value="party" {% if let Some(kind) = col.kind %}{% if kind == "party" %}selected{% endif %}{% endif %}>Party</option>
+                    <option value="lead" {% if let Some(kind) = col.kind %}{% if kind == "lead" %}selected{% endif %}{% endif %}>Lead</option>
+                    <option value="opportunity" {% if let Some(kind) = col.kind %}{% if kind == "opportunity" %}selected{% endif %}{% endif %}>Opportunity</option>
+                    <option value="task" {% if let Some(kind) = col.kind %}{% if kind == "task" %}selected{% endif %}{% endif %}>Task</option>
+                </select>
+            </div>
+            {% endif %}
+            {% endfor %}
+            {% endfor %}
 
-        <div style="margin-top:16px;">
-            <button type="submit" class="btn btn-primary">Save Overrides</button>
-        </div>
-    </form>
-</div>
+            <div style="margin-top:16px;">
+                <button type="submit" class="btn btn-primary">Save Overrides</button>
+            </div>
+        </form>
+    </div>
+</details>
 {% endblock %}

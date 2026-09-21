@@ -94,7 +94,7 @@ created_at
 updated_at
 ```
 
-The tuple `(provider, external_tenant_id, external_business_id)` MUST be unique. In v1, an active tuple MUST resolve to exactly one Hydra tenant. Bindings MUST support active, disabled, and revoked semantics. Hydra tenant IDs MUST remain the internal authority and MUST NOT be replaced by external IDs.
+The tuple `(provider, external_tenant_id, external_business_id)` MUST be unique. In v1, an active tuple MUST resolve to exactly one Hydra tenant. Binding text identifiers MUST be non-empty, free of control characters, and bounded to 512 Unicode scalar values. Bindings MUST support active, disabled, and revoked semantics. Hydra tenant IDs MUST remain the internal authority and MUST NOT be replaced by external IDs.
 
 ### 4.4 Invocation context
 
@@ -305,6 +305,8 @@ Hydra MUST publish a CloudEvents-compatible or equivalently rigorous envelope co
 - `data_class`
 - typed payload
 
+`occurred_at` and `observed_at`, when present, MUST be valid RFC3339 timestamps. Runtime validation and the published JSON Schema MUST enforce the same timestamp and text-field constraints.
+
 Stable semantic v1 names include:
 
 - `hydra.crm.entity.created.v1`
@@ -318,7 +320,7 @@ Stable semantic v1 names include:
 - `hydra.crm.bridge.health_changed.v1`
 - `hydra.crm.sync.conflict.v1`
 
-NATS subjects MUST NOT contain PII. Events MUST NOT contain access tokens or secrets. Event fixtures MUST be schema validated and scanned for token/secret-shaped values.
+NATS subjects MUST NOT contain PII. Events MUST NOT contain access tokens or secrets. Text in the canonical envelope and typed payload MUST be non-empty, free of control characters, and bounded to 512 Unicode scalar values; autonomy-freeze reasons are bounded to 500 values. Event fixtures MUST be schema validated and scanned for token/secret-shaped values.
 
 ## 15. JetStream durability
 

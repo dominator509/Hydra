@@ -71,7 +71,7 @@ validate_sections() {
   done
 }
 
-for number in 011 012 013 014 015 016; do
+for number in 011 012 013 014 015 016 017 018 019 020 021 022 023 024 025 026 027 028 029 030 031 032 033 034 035 036 037 038 039 040 041 042 043 044 045 046 047 048 049 050 051 052 053 054 055 056; do
   set -- .agent/execplans/EP-$number-*.md
   [ "$#" -eq 1 ] && [ -f "$1" ] || {
     echo "execplan state ERROR: expected one plan file for EP-$number" >&2
@@ -90,8 +90,23 @@ for number in 011 012 013 014 015 016; do
   validate_sections "$plan"
 done
 
-grep -Fxq "Plan status: DEFERRED" .agent/execplans/EP-016-nexus-model-a2a-and-skills.md || {
-  echo "execplan state ERROR: EP-016 must remain DEFERRED" >&2
+if grep -Eq '^\| EP-016 \| COMPLETE \|' "$INDEX"; then
+  grep -Fxq "Plan status: COMPLETE" .agent/execplans/EP-016-nexus-model-a2a-and-skills.md || {
+    echo "execplan state ERROR: EP-016 index and plan status disagree" >&2
+    exit 1
+  }
+else
+  grep -Fxq "Plan status: ACTIVE" .agent/execplans/EP-016-nexus-model-a2a-and-skills.md || {
+    echo "execplan state ERROR: EP-016 must be active until its milestones complete" >&2
+    exit 1
+  }
+fi
+grep -Eq '^\| EP-011 \| COMPLETE \|' "$INDEX" &&
+grep -Eq '^\| EP-012 \| COMPLETE \|' "$INDEX" &&
+grep -Eq '^\| EP-013 \| COMPLETE \|' "$INDEX" &&
+grep -Eq '^\| EP-014 \| COMPLETE \|' "$INDEX" &&
+grep -Eq '^\| EP-015 \| COMPLETE \|' "$INDEX" || {
+  echo "execplan state ERROR: EP-011 through EP-015 must be COMPLETE before EP-016" >&2
   exit 1
 }
 

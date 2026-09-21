@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
 use crate::{
-    extract_choice_text, non_caching_usage, normalize_base_url, output_tokens, ChatRequest,
-    JsonHttpClient, LlmProvider, Pricing, ProviderResponse, Tag,
+    extract_choice_text, non_caching_usage, normalize_base_url, output_tokens, provider_provenance,
+    ChatRequest, JsonHttpClient, LlmProvider, Pricing, ProviderResponse, Tag,
 };
 
 const PRICING: Pricing = Pricing::new(4, 8, 12);
@@ -32,6 +32,24 @@ impl OpenAiCompatProvider {
             model: model.into(),
             tags,
         }
+    }
+
+    pub fn new_with_proxy(
+        name: &'static str,
+        base_url: impl Into<String>,
+        api_key: Option<String>,
+        model: impl Into<String>,
+        tags: Vec<Tag>,
+        proxy_url: Option<&str>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            http: JsonHttpClient::new_with_proxy(proxy_url)?,
+            name,
+            base_url: base_url.into(),
+            api_key,
+            model: model.into(),
+            tags,
+        })
     }
 }
 
@@ -72,6 +90,17 @@ impl LlmProvider for OpenAiCompatProvider {
             out_tokens,
             cost_cents,
             provider: self.name(),
+            provenance: provider_provenance(
+                self.name(),
+                &self.model,
+                "openai-compatible",
+                if self.tags.contains(&Tag::Private) {
+                    tokenkiller::ProviderPrivacy::Private
+                } else {
+                    tokenkiller::ProviderPrivacy::Public
+                },
+                req,
+            ),
         })
     }
 }

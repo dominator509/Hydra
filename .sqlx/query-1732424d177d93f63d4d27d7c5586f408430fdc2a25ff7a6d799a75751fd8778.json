@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO hydra_role (user_id, tenant_id, role)\n            VALUES ($1, $2, $3)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1732424d177d93f63d4d27d7c5586f408430fdc2a25ff7a6d799a75751fd8778"
+}

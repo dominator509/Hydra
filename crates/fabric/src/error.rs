@@ -124,10 +124,13 @@ impl FabricError {
         match self {
             Self::ValidationFailed(detail)
             | Self::AuthnFailed(detail)
-            | Self::LlmProviderError(detail)
             | Self::TkOutputNuked(detail)
             | Self::TkPiiRouteBlocked(detail)
             | Self::ConstitutionBlocked(detail) => Some(detail.clone()),
+            // Provider errors may contain parser, endpoint, or upstream
+            // diagnostics. Keep those details internal and expose only the
+            // stable problem category to external callers.
+            Self::LlmProviderError(_) => Some("LLM provider unavailable".to_owned()),
             Self::CapabilityUnavailable(detail) => Some(detail.clone()),
             Self::Internal(_) => None,
             _ => None,
@@ -140,12 +143,6 @@ impl IntoResponse for FabricError {
         let status = self.status();
         let body = ProblemJson::new(self.code(), self.title(), self.detail());
         (status, Json(body)).into_response()
-    }
-}
-
-impl From<sqlx::Error> for FabricError {
-    fn from(value: sqlx::Error) -> Self {
-        Self::Internal(value.to_string())
     }
 }
 
@@ -165,5 +162,24 @@ impl From<store::StoreError> for FabricError {
             }
             other => Self::Internal(other.to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FabricError;
+
+    #[test]
+    fn llm_provider_problem_detail_is_stable_and_redacted() {
+        let error = FabricError::LlmProviderError(
+            "llm_provider_error: upstream status 502 at https://user:secret@example.invalid; private prompt".to_owned(),
+        );
+
+        assert_eq!(error.code(), "llm_provider_error");
+        assert_eq!(error.detail().as_deref(), Some("LLM provider unavailable"));
+        let detail = error.detail().expect("provider detail should be present");
+        assert!(!detail.contains("secret"));
+        assert!(!detail.contains("private prompt"));
+        assert!(!detail.contains("example.invalid"));
     }
 }

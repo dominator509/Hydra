@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT id, version, deleted_at\n                FROM entity\n                WHERE tenant_id = $1 AND origin = $2 AND origin_ref = $3\n                FOR UPDATE\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "deleted_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "cb16b39ce7b8b543ea4e5058e012007c1e13b393769420034422bb048ffb4378"
+}

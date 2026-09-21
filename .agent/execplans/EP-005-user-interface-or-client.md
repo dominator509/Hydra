@@ -55,3 +55,11 @@ Templates hot-recompilable; e2e tests seed+teardown their tenant schema.
 
 ## Post-Implementation Reality Check (2026-08-10)
 M5 remains unexecuted exactly as Progress records. No required `e2e_` function exists, and `scripts/test-e2e.sh` currently warns but still prints `e2e tests: ok`; therefore JS-off, accessibility, and browser behavior are not verified. EP-015 owns the real E2E gate and will not relabel absent tests as passed.
+
+## Current Verification Status (2026-08-12)
+EP-053 adds and verifies the code-owned portion of M5: semantic Shell
+landmarks, native `details`/`summary` disclosures for New Deal and Kind
+Overrides, and a strict contract that enhanced forms retain native POST
+actions. The historical M5 checkbox remains unchanged. Browser keyboard,
+screen-reader, contrast, and staging no-JavaScript evidence remain open under
+EP-010.

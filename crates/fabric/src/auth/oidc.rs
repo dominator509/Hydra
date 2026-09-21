@@ -32,6 +32,7 @@ pub struct NexusOidcConfig {
     pub allowed_algorithms: Vec<Algorithm>,
     pub jwks_cache_ttl: Duration,
     pub clock_skew: Duration,
+    pub egress_proxy_url: Option<String>,
 }
 
 impl NexusOidcConfig {
@@ -41,7 +42,9 @@ impl NexusOidcConfig {
             ("issuer", self.issuer.as_str()),
             ("audience", self.audience.as_str()),
         ] {
-            if value.trim().is_empty() {
+            if value.trim().is_empty()
+                || (name == "provider" && !store::is_valid_external_binding_text(value))
+            {
                 return Err(FabricError::Internal(format!(
                     "Nexus OIDC {name} cannot be empty"
                 )));
@@ -136,11 +139,7 @@ impl OidcAuthenticator {
         bindings: Arc<dyn ExternalBindingResolver>,
     ) -> Result<Self, FabricError> {
         config.validate()?;
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(5))
-            .build()
-            .map_err(|error| FabricError::Internal(format!("build OIDC client: {error}")))?;
+        let client = build_oidc_client(config.egress_proxy_url.as_deref())?;
 
         Ok(Self {
             config,
@@ -186,8 +185,8 @@ impl OidcAuthenticator {
             || claims.iss != self.config.issuer
             || !claims.aud.contains(&self.config.audience)
             || claims.exp == 0
-            || claims.external_tenant_id.trim().is_empty()
-            || claims.external_business_id.trim().is_empty()
+            || !store::is_valid_external_binding_text(&claims.external_tenant_id)
+            || !store::is_valid_external_binding_text(&claims.external_business_id)
             || claims
                 .jti
                 .as_ref()
@@ -438,6 +437,20 @@ fn authentication_failed() -> FabricError {
     FabricError::AuthnFailed(INVALID_TOKEN.to_owned())
 }
 
+fn build_oidc_client(proxy_url: Option<&str>) -> Result<reqwest::Client, FabricError> {
+    let mut builder = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(5));
+    if let Some(proxy_url) = proxy_url {
+        let proxy = reqwest::Proxy::all(proxy_url)
+            .map_err(|_| FabricError::Internal("invalid egress proxy URL".to_owned()))?;
+        builder = builder.proxy(proxy);
+    }
+    builder
+        .build()
+        .map_err(|_| FabricError::Internal("build OIDC client failed".to_owned()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,6 +465,7 @@ mod tests {
             allowed_algorithms: vec![Algorithm::HS256],
             jwks_cache_ttl: Duration::from_secs(300),
             clock_skew: Duration::from_secs(30),
+            egress_proxy_url: None,
         };
         assert!(config.validate().is_err());
     }
@@ -462,5 +476,32 @@ mod tests {
         assert_eq!(parse_algorithm("EdDSA").ok(), Some(Algorithm::EdDSA));
         assert!(parse_algorithm("HS256").is_err());
         assert!(parse_algorithm("none").is_err());
+    }
+
+    #[test]
+    fn oidc_client_rejects_malformed_proxy_without_echoing_it() {
+        let error = match build_oidc_client(Some("http://user:secret@[invalid")) {
+            Ok(_) => panic!("malformed proxy must fail closed"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            FabricError::Internal(message) if message == "invalid egress proxy URL"
+        ));
+    }
+
+    #[test]
+    fn nexus_auth_rejects_invalid_provider_binding_key() {
+        let config = NexusOidcConfig {
+            provider: "nexus\nprovider".to_owned(),
+            issuer: "https://issuer.example".to_owned(),
+            audience: "hydra".to_owned(),
+            key_source: OidcKeySource::PinnedPublicKey(b"unused".to_vec()),
+            allowed_algorithms: vec![Algorithm::RS256],
+            jwks_cache_ttl: Duration::from_secs(300),
+            clock_skew: Duration::from_secs(30),
+            egress_proxy_url: None,
+        };
+        assert!(config.validate().is_err());
     }
 }

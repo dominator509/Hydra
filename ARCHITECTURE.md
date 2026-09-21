@@ -21,6 +21,8 @@ The v1 interoperability seam is narrow and versioned:
 
 Nexus concepts are translated in Fabric into generic internal types such as `PrincipalContext`, `ExternalTenantBinding`, and `InvocationContext`; Nexus-specific protocol concerns do not spread into L1/L2.
 
+Optional Agent Skills remain an L3 declarative discovery concern. `agents::skills::SkillRegistry` verifies upstream `SKILL.md` metadata plus a Hydra-local Ed25519 manifest against owner-controlled trust anchors; it exposes metadata only and never executes package scripts, grants credentials, or changes capability/Governor policy.
+
 ### Dual-gate mutation rule
 Nexus authorization establishes that an authenticated actor may request an action. Hydra Governor independently establishes whether that CRM action may execute. Both gates must allow execution. A model, agent, HTTP header, MCP metadata field, or NATS message can never approve or directly perform a store mutation.
 
@@ -75,32 +77,39 @@ GraphQL is not implemented and is not required for Nexus v1. It remains a possib
 
 ### Current runtime capability truth
 - `pipeline/move_stage/deal` is the only registered CRM execution handler. It performs and verifies governed stage changes.
-- The Wasmtime/WIT `BridgeHost` is constructed at kernel boot. Durable adapter deployment, pause, resume, and sync lifecycle handlers are not registered and remain unavailable.
+- The Wasmtime/WIT `BridgeHost` is constructed at kernel boot, and the configured age-encrypted vault is loaded into its read-only `SecretSource` boundary. When `HYDRA_ADAPTERS_PATH` and the SecretSource are valid, typed governed handlers expose prebuilt adapter deployment, pause, resume, and manual synchronization. A new deployment must pass the bounded read-only BridgeHost conformance contract after probe and before the registry enters `active`; failures persist a tenant-scoped `failed` state. Synchronization selects the persisted descriptor's incremental feed or bounded full-relist fallback; read-only conformance is separately exposed through authenticated A2A. Bounded mapping-proposal synthesis remains an experimental TOKENKILLER-backed A2A capability when a provider chain is configured; generated code, autonomous canary, and promotion remain unavailable.
 - DataSteward merge is experimental and produces an `ActionEnvelope` proposal only; no merge execution handler is registered.
-- BridgeEngineer synthesis is unavailable after discovery, and Comms can draft text but has no delivery transport.
+- BridgeEngineer mapping proposals are experimental only when the Kernel has a configured `bridge_mapping` TOKENKILLER route and remain non-executable; Comms can draft text but has no delivery transport.
 - The TOKENKILLER concierge path is available only when a real LLM provider is configured. Otherwise the kernel reports it disabled; fake routers are test-only.
+- Signed skill discovery is disabled when its two optional paths are absent, available only when at least one package verifies, and unavailable when configured but no package passes trust validation. The runtime inventory never treats an invalid or untrusted package as executable.
 
 ## Data flow (bridge)
 Adapter `changes-since` (host-polled) → raw-record JSON → wiring transform pipeline (fixed library) → CDM upsert as `origin=bridge:<id>` → identity resolution merge → events. CDM edits to bridged entities → reverse wiring → envelope `bridge.write_back` → adapter `upsert` with etag; conflicts land in review queue per wiring `conflict:` policy.
 
 ## State management rules
-Shell is stateless (session cookie → server state). All durable state in Postgres; NATS JetStream is transport + replay buffer, never source of truth. Adapter KV is adapter-scoped scratch (Postgres table `adapter_kv`), never CDM data.
+Shell is stateless (session cookie → server state). All durable state in Postgres; NATS JetStream is transport + replay buffer, never source of truth. Adapter KV is tenant-and-adapter-scoped scratch (Postgres table `tenant_adapter_kv`), never CDM data. Historical `adapter_kv` rows are not used by runtime code because they lack tenant authority.
 
 ### Canonical event delivery
-Store writes one versioned canonical event document to append-only `event_log` and `outbox` in the same transaction as the governed CRM state change. The outbox owns the stable `event_id`; Kernel never creates a replacement ID during relay. Store leases pending rows without holding a database transaction across network I/O. Kernel publishes to the exact non-PII semantic event subject with `event_id` as `Nats-Msg-Id`, waits for a JetStream publish acknowledgement, and only then records `published_at` and the positive stream sequence through Store. A crash after broker acknowledgement but before that receipt causes an at-least-once retry of the same logical event. Invalid canonical rows are parked, not deleted, and transient broker failures remain pending.
+Store writes one versioned canonical event document to append-only `event_log` and `outbox` in the same transaction as the governed CRM state change. The outbox owns the stable `event_id`; Kernel never creates a replacement ID during relay. Store leases pending rows without holding a database transaction across network I/O. Kernel publishes to the exact non-PII semantic event subject with `event_id` as `Nats-Msg-Id`, waits for a JetStream publish acknowledgement, and only then records `published_at` and the positive stream sequence through Store. A crash after broker acknowledgement but before that receipt causes an at-least-once retry of the same logical event. Invalid canonical rows are parked, not deleted, and transient broker failures remain pending. A durable parked row makes canonical event readiness fail closed, including after a relay restart, until it is investigated through the operator recovery process.
 
 W3C `traceparent` and optional bounded `tracestate` are operational carriers, not tenant authority or business provenance. Fabric derives a server child only after parsing the request, Store persists the carrier separately from `InvocationContext`, Executor derives downstream children after asynchronous dispatch, and Kernel emits only those two headers to JetStream. Baggage is neither accepted nor persisted. Durable request, correlation, causation, objective, task, and approval references remain in the business envelope/event contract even after a trace ends.
 
 Nexus-connected readiness requires Postgres, core NATS connectivity, the exact `HYDRA_CRM_EVENTS_V1` stream contract, and a running relay that has completed a successful iteration. `/v1/nexus/events/status` reads the same typed runtime status. Standalone mode does not require the Nexus event seam.
 
 ## Persistence boundaries
-Only `crates/store` executes SQL. sqlx macros with checked queries; migrations forward-only + paired `-- revert:` note; JSONB bodies validated against the kind's JSON Schema before write.
+Only `crates/store` executes SQL. This includes Kernel health and migration operations plus local authentication/session persistence; Fabric and Kernel consume typed Store repositories and do not hold a database pool for runtime queries. sqlx macros with checked queries; migrations forward-only + paired `-- revert:` note; JSONB bodies validated against the kind's JSON Schema before write. Store also owns the versioned, tenant-scoped export projection and non-destructive retention preview; these return canonical entities, relationships, and safe operational metadata without exposing TOKENKILLER content or creating a second CRM source of truth.
 
 ## External integration boundaries
-Required target: all egress -> `fabric::egress::Proxy` (allow-list, auth injection from vault, rate limits, audit). Adapters get egress only via `host.http`, delegated through the same proxy with the adapter's grant. The pre-EP-011 bridge host and LLM router still construct direct `reqwest` clients; this is a verified implementation gap, not an accepted exception.
+Required target: all external egress -> the explicit proxy boundary (allow-list, auth injection from vault, rate limits, audit). Adapters get egress only via `host.http`, delegated through the same proxy with the adapter's grant. The Kernel validates `HYDRA_EGRESS_PROXY_URL` and, in staging/production, passes it explicitly to every configured LLM provider and OIDC JWKS client; Fabric and BridgeHost expose the same proxy-aware construction seam. Existing unconfigured constructors remain only for standalone development and deterministic tests. Ambient `HTTP_PROXY`/`HTTPS_PROXY` behavior is not a production authorization contract.
+
+The configured Kernel bridge lifecycle uses the same explicit proxy-aware
+BridgeHost client at runtime; it does not inject the deny-only test client into
+an active adapter path. If proxy-client construction fails, the lifecycle is
+unavailable and its typed handlers are not registered. This proves local
+construction and wiring only, not staging ACL or upstream connectivity.
 
 ## Security boundaries
-Vault (file-based age-encrypted in v1) ↔ named secrets. Grants: per-adapter {origins[], secret_names[], dsn?, fuel}. Governor constitution is loaded read-only at boot; hot-reload requires signed config. AuthN in `fabric::auth`; AuthZ = role×tenant checks in service traits (never in templates).
+Vault (file-based age-encrypted in v1) ↔ named secrets, loaded by Kernel through `bridge_host::VaultSecretSource`. `hydra-vault` is the owner provisioning/rotation surface and never prints values. Grants: per-adapter {origins[], secret_names[], dsn?, fuel}. Governor constitution is loaded read-only at boot; hot-reload requires signed config. AuthN in `fabric::auth`; AuthZ = role×tenant checks in service traits (never in templates).
 
 ## Validation boundaries
 Trust boundaries validate: fabric handlers (serde + garde), store (schema registry), bridge-host (WIT types + record JSON schema), tokenkiller (output contracts).
@@ -109,7 +118,7 @@ Trust boundaries validate: fabric handlers (serde + garde), store (schema regist
 `thiserror` per crate; `fabric` maps to problem+json (RFC 7807). Adapter `bridge-error` variants map 1:1 to retry/park/alert policies in kernel sync loop (SPEC-006 taxonomy).
 
 ## Observability boundaries
-`tracing` spans at every boundary crossing with fields {tenant, envelope_id?, adapter_id?, route?}. Metrics registry in kernel; crates expose `metrics()` hooks. No `println!` outside scripts.
+`tracing` spans at every boundary crossing with fields {tenant, envelope_id?, adapter_id?, route?}. The Kernel owns the process-local Prometheus registry and records bounded request totals and latency after responses through its L6 middleware; route labels use a fixed taxonomy and never contain tenant IDs, query strings, identities, or customer data. Crates expose `metrics()` hooks. No `println!` outside scripts. Live scraping, dashboards, alerts, and staging observability drills remain operational readiness work.
 
 ## TOKENKILLER boundary (mandatory on every LLM call)
 `agents` NEVER call `llm-router` directly. Call path: agent → `tokenkiller::Session::complete(route, segments, tail)` → assembles canonical prefix → router → NukeGuard-wrapped stream → contract validation → ledger. Invariant TK-1..TK-6 below.
@@ -119,7 +128,7 @@ Trust boundaries validate: fabric handlers (serde + garde), store (schema regist
 - INV-2 Only bridge-host links wasmtime; adapters have zero ambient capability.
 - INV-3 Only store touches SQL; every mutation lands in event_log via outbox.
 - INV-4 PII-tagged prompts route only to `private` providers (structural check in router).
-- INV-5 hard delete is impossible through any code path (soft-delete flag + purge job only).
+- INV-5 hard delete is impossible through any code path (soft-delete flag; any future purge job requires a separately authorized policy and ExecPlan).
 - TK-1 Every LLM request is assembled by tokenkiller::prefix (never string concat in agents).
 - TK-2 Segments serialize via tokenkiller::canon (sorted keys, LF, NFC, fixed floats, no timestamps/randomness in S0–S2).
 - TK-3 Segment order S0→S1→S2→S3; S0–S2 bytes may change only via versioned config bump (which resets cache intentionally).
@@ -144,3 +153,49 @@ Never hand-wire into kernel. Write/generate an adapter against `wit/hydra-bridge
 
 ## Architecture review checklist
 [ ] imports respect layer table  [ ] no new SQL outside store  [ ] no wasmtime outside bridge-host  [ ] TK-1..6 hold (rg for `llm-router` imports in agents = only tokenkiller)  [ ] INV-1..5 hold  [ ] events emitted for every mutation  [ ] docs updated.
+
+## Governed Bridge Synchronization
+
+The bounded synchronization seam is a manually invoked incremental page or
+full-relist snapshot. An authenticated Nexus principal proposes
+`hydra.bridges.sync` through MCP or `POST /v1/nexus/bridges/{id}/sync`; Fabric
+binds the adapter identity from the REST path, resolves tenant authority from
+the verified binding, and creates an ActionEnvelope. The Kernel executes only
+the typed `bridges/sync_adapter` handler after the Governor decision and selects
+the mode from the persisted adapter descriptor.
+
+Store owns the cursor, run lease, canonical bridge-origin upsert, soft delete,
+and conflict metadata. Cursor state is scoped by Hydra tenant, adapter, and
+canonical kind; callers cannot provide or advance a cursor. A complete page
+advances the cursor in the same transaction as entity, audit, event, and
+outbox writes. Invalid changes park bounded conflict metadata and leave the
+cursor unchanged. No raw provider payload is persisted in conflict records.
+
+The full-relist path follows WIT `list` cursors under fixed page, record, and
+aggregate-byte bounds. Store compares the complete validated snapshot in one
+transaction, leaves unchanged active rows untouched, revives matching
+tombstones, and soft-deletes only missing active bridge-origin rows.
+
+An owner-created schedule may optionally create the same governed sync
+envelope on a durable cadence. The scheduler leases due rows in Store,
+persists `hydra.scheduler` provenance and deterministic slot idempotency, and
+never calls BridgeHost or canonical CRM mutation code directly. The feature is
+disabled by default and fails readiness closed when enabled without the typed
+sync handler. Mapping activation, canary, and promotion remain unavailable.
+
+## Governed Bridge Conformance
+
+The authenticated `bridge-conformance` A2A workflow is a read-only audit
+boundary over a configured, digest-pinned adapter. Fabric supplies only the
+verified tenant and the bounded adapter ID, kind, and limit; Kernel resolves
+the active tenant-scoped adapter record and persisted grant/configuration;
+BridgeHost performs bounded `describe`, `probe`, schema, list, and optional
+incremental-read calls through Wasmtime/WIT. The result contains metadata,
+counts, digest, fuel, and a deterministic report, never raw CRM records,
+secrets, provider responses, or mutation results.
+
+Conformance does not create an ActionEnvelope or write CDM, audit, event, or
+outbox state. A2A task persistence is the only durable workflow boundary.
+Missing runtime, inactive adapter, digest mismatch, invalid pages, and
+cross-tenant lookup all fail closed. This does not make synchronization,
+activation, canary, promotion, or EP-010 production readiness available.

@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::{Arc, LazyLock, Mutex};
 
-use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::{body::Body, extract::Request, http::StatusCode, middleware::Next, response::Response};
 
 // ---------------------------------------------------------------------------
 // Default histogram buckets (seconds, matching Prometheus default).
@@ -117,6 +117,15 @@ impl MetricsRegistry {
                 rows: vec![],
             });
 
+        self.counters
+            .lock()
+            .expect("metrics counters lock should not be poisoned")
+            .entry("hydra_bridge_sync_scheduler_operations_total".into())
+            .or_insert_with(|| CounterFamily {
+                help: "Bridge sync scheduler operations by bounded outcome".into(),
+                rows: vec![],
+            });
+
         self.histograms
             .lock()
             .expect("metrics histograms lock should not be poisoned")
@@ -147,15 +156,13 @@ impl MetricsRegistry {
 
     // -- counters -----------------------------------------------------------
 
-    #[cfg(test)]
     pub(crate) fn inc_counter(&self, name: &str, labels: Vec<(String, String)>) {
-        let mut counters = self
-            .counters
-            .lock()
-            .expect("metrics counters lock should not be poisoned");
-        let family = counters
-            .get_mut(name)
-            .expect("counter not pre-registered; call register_defaults first");
+        let Ok(mut counters) = self.counters.lock() else {
+            return;
+        };
+        let Some(family) = counters.get_mut(name) else {
+            return;
+        };
 
         // Look for an existing row with the same labels.
         if let Some(row) = family.rows.iter_mut().find(|r| r.labels == labels) {
@@ -167,13 +174,13 @@ impl MetricsRegistry {
 
     // -- histograms ---------------------------------------------------------
 
-    #[cfg(test)]
     pub(crate) fn observe_histogram(&self, name: &str, value: f64, labels: Vec<(String, String)>) {
-        let mut histos = self
-            .histograms
-            .lock()
-            .expect("metrics histograms lock should not be poisoned");
-        let family = histos.get_mut(name).expect("histogram not pre-registered");
+        let Ok(mut histos) = self.histograms.lock() else {
+            return;
+        };
+        let Some(family) = histos.get_mut(name) else {
+            return;
+        };
 
         if let Some(row) = family.rows.iter_mut().find(|r| r.labels == labels) {
             row.count += 1;
@@ -346,6 +353,83 @@ pub async fn metrics_handler() -> impl IntoResponse {
     )
 }
 
+/// Record bounded request dimensions after the downstream response exists.
+pub async fn request_metrics_middleware(request: Request<Body>, next: Next) -> Response {
+    let method = metric_method(request.method().as_str());
+    let route = metric_route(request.uri().path());
+    let started = std::time::Instant::now();
+    let response = next.run(request).await;
+    record_response_metrics(
+        registry(),
+        method,
+        route,
+        response.status(),
+        started.elapsed().as_secs_f64(),
+    );
+    response
+}
+
+fn record_response_metrics(
+    registry: &MetricsRegistry,
+    method: &'static str,
+    route: &'static str,
+    status: StatusCode,
+    duration_seconds: f64,
+) {
+    let status_class = match status.as_u16() {
+        200..=299 => "2xx",
+        300..=399 => "3xx",
+        400..=499 => "4xx",
+        500..=599 => "5xx",
+        _ => "other",
+    };
+    registry.inc_counter(
+        "hydra_requests_total",
+        vec![
+            ("method".to_owned(), method.to_owned()),
+            ("route".to_owned(), route.to_owned()),
+            ("status_class".to_owned(), status_class.to_owned()),
+        ],
+    );
+    registry.observe_histogram(
+        "hydra_request_duration_seconds",
+        duration_seconds.max(0.0),
+        vec![
+            ("method".to_owned(), method.to_owned()),
+            ("route".to_owned(), route.to_owned()),
+        ],
+    );
+}
+
+fn metric_method(method: &str) -> &'static str {
+    match method {
+        "GET" => "GET",
+        "POST" => "POST",
+        "PUT" => "PUT",
+        "PATCH" => "PATCH",
+        "DELETE" => "DELETE",
+        "HEAD" => "HEAD",
+        "OPTIONS" => "OPTIONS",
+        _ => "OTHER",
+    }
+}
+
+fn metric_route(path: &str) -> &'static str {
+    match path {
+        "/" => "/",
+        "/healthz" => "/healthz",
+        "/readyz" => "/readyz",
+        "/readyz/details" => "/readyz/details",
+        "/metrics" => "/metrics",
+        "/mcp" => "/mcp",
+        "/a2a" => "/a2a",
+        _ if path.starts_with("/v1/nexus/") => "/v1/nexus/*",
+        _ if path.starts_with("/v1/") => "/v1/*",
+        _ if path.starts_with("/static/") => "/static/*",
+        _ => "/other",
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -364,6 +448,7 @@ mod tests {
         assert!(output.contains("# TYPE hydra_requests_total counter"));
         assert!(output.contains("# HELP hydra_envelopes_total"));
         assert!(output.contains("# HELP hydra_tk_nuke_aborts_total"));
+        assert!(output.contains("# HELP hydra_bridge_sync_scheduler_operations_total"));
         assert!(output.contains("# HELP hydra_request_duration_seconds"));
         assert!(output.contains("# HELP hydra_tk_cache_hit_ratio"));
         assert!(output.contains("# TYPE hydra_tk_cache_hit_ratio gauge"));
@@ -417,6 +502,22 @@ mod tests {
     }
 
     #[test]
+    fn scheduler_metrics_use_only_bounded_outcome_labels() {
+        let reg = MetricsRegistry::new();
+        reg.inc_counter(
+            "hydra_bridge_sync_scheduler_operations_total",
+            vec![("outcome".into(), "proposal_succeeded".into())],
+        );
+        let output = reg.render();
+        assert!(output.contains(
+            "hydra_bridge_sync_scheduler_operations_total{outcome=\"proposal_succeeded\"} 1"
+        ));
+        assert!(!output.contains("tenant_id"));
+        assert!(!output.contains("schedule_id"));
+        assert!(!output.contains("adapter_id"));
+    }
+
+    #[test]
     fn metrics_request_records_duration() {
         let reg = MetricsRegistry::new();
         reg.inc_counter(
@@ -455,5 +556,32 @@ mod tests {
         );
         let output = reg.render();
         assert!(output.contains("hydra_envelopes_total{state=\"PendingApproval\"}"));
+    }
+
+    #[test]
+    fn request_metrics_record_bounded_dimensions() {
+        let reg = MetricsRegistry::new();
+        record_response_metrics(
+            &reg,
+            metric_method("TRACE"),
+            metric_route("/v1/entities/tenant-secret/entity-secret?email=private"),
+            StatusCode::NOT_FOUND,
+            0.042,
+        );
+        let output = reg.render();
+        assert!(output.contains(
+            "hydra_requests_total{method=\"OTHER\",route=\"/v1/*\",status_class=\"4xx\"} 1"
+        ));
+        assert!(output
+            .contains("hydra_request_duration_seconds_count{method=\"OTHER\",route=\"/v1/*\"} 1"));
+        assert!(!output.contains("tenant-secret"));
+        assert!(!output.contains("email"));
+    }
+
+    #[test]
+    fn unknown_routes_and_methods_have_fixed_labels() {
+        assert_eq!(metric_method("CUSTOM-IDENTITY"), "OTHER");
+        assert_eq!(metric_route("/customer/secret-id"), "/other");
+        assert_eq!(metric_route("/v1/nexus/context/secret-id"), "/v1/nexus/*");
     }
 }

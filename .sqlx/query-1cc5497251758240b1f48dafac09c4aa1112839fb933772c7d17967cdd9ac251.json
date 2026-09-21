@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT status, reason, actor, updated_at\n            FROM autonomy_freeze\n            WHERE tenant_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "actor",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "1cc5497251758240b1f48dafac09c4aa1112839fb933772c7d17967cdd9ac251"
+}

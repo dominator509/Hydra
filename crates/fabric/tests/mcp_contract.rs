@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use fabric::services::{
-    demo_governor, AppState, ConciergeServiceImpl, EntityDeleteResponse, EntityService,
-    EnvelopeCreateRequest, EnvelopeService, NexusControlPlaneConfig, StoreAutonomyService,
-    StoreBridgeService, StoreTkStatsService,
+    AppState, BridgeRegisterRequest, BridgeService, BridgeStatusDto, ConciergeServiceImpl,
+    EntityDeleteResponse, EntityService, EnvelopeCreateRequest, EnvelopeService,
+    NexusControlPlaneConfig, StoreAutonomyService, StoreTkStatsService,
 };
 use fabric::{
     app, AuthCtx, ExternalBindingResolver, FabricError, NexusOidcConfig, OidcAuthenticator,
@@ -124,6 +124,53 @@ impl EntityService for FakeEntityService {
 
 struct FakeEnvelopeService;
 
+struct FakeBridgeService;
+
+#[async_trait]
+impl BridgeService for FakeBridgeService {
+    async fn register(
+        &self,
+        _ctx: &AuthCtx,
+        _tenant: Uuid,
+        _actor: &str,
+        _request: BridgeRegisterRequest,
+    ) -> Result<ActionEnvelope, FabricError> {
+        Err(FabricError::AuthzDenied)
+    }
+
+    async fn status(
+        &self,
+        _tenant: Uuid,
+        _adapter_id: &str,
+    ) -> Result<BridgeStatusDto, FabricError> {
+        Err(FabricError::NotFound)
+    }
+
+    async fn list_status(&self, _tenant: Uuid) -> Result<Vec<BridgeStatusDto>, FabricError> {
+        Ok(Vec::new())
+    }
+
+    async fn pause(
+        &self,
+        _ctx: &AuthCtx,
+        _tenant: Uuid,
+        _actor: &str,
+        _adapter_id: &str,
+    ) -> Result<BridgeStatusDto, FabricError> {
+        Err(FabricError::AuthzDenied)
+    }
+
+    async fn resume(
+        &self,
+        _ctx: &AuthCtx,
+        _tenant: Uuid,
+        _actor: &str,
+        _adapter_id: &str,
+    ) -> Result<BridgeStatusDto, FabricError> {
+        Err(FabricError::AuthzDenied)
+    }
+}
+
 #[async_trait]
 impl EnvelopeService for FakeEnvelopeService {
     async fn list(
@@ -238,6 +285,7 @@ impl Harness {
                 allowed_algorithms: vec![Algorithm::EdDSA],
                 jwks_cache_ttl: Duration::from_secs(300),
                 clock_skew: Duration::from_secs(5),
+                egress_proxy_url: None,
             },
             Arc::new(FakeBindingResolver {
                 binding_id,
@@ -250,7 +298,7 @@ impl Harness {
                 entities: Arc::new(entities),
             }),
             Arc::new(StoreAutonomyService::new(store.clone())),
-            Arc::new(StoreBridgeService::new(store.clone(), demo_governor())),
+            Arc::new(FakeBridgeService),
             Arc::new(FakeEnvelopeService),
             Arc::new(StoreTkStatsService::new(
                 store.ledger.clone(),
@@ -312,6 +360,24 @@ async fn mcp_contract_external_rate_limit_is_enforced() -> Result<(), Box<dyn st
         .await?;
     assert_eq!(limited.status(), reqwest::StatusCode::TOO_MANY_REQUESTS);
     assert!(limited.headers().contains_key(reqwest::header::RETRY_AFTER));
+
+    harness.stop();
+    Ok(())
+}
+
+#[tokio::test]
+async fn mcp_contract_token_endpoint_is_not_an_issuer() -> Result<(), Box<dyn std::error::Error>> {
+    let harness = Harness::start().await?;
+    let response = reqwest::Client::new()
+        .post(harness.url("/oauth/token"))
+        .send()
+        .await?;
+    let status = response.status();
+    let body = response.text().await?;
+
+    assert_eq!(status, reqwest::StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!body.contains("access_token"));
+    assert!(!body.contains("signing_secret"));
 
     harness.stop();
     Ok(())
@@ -405,6 +471,10 @@ async fn mcp_contract_tools_are_stable_tenant_bound_and_schema_valid(
         .as_array()
         .expect("MCP tools/list must return tools");
     let expected_names = [
+        "hydra.bridges.deploy",
+        "hydra.bridges.pause",
+        "hydra.bridges.resume",
+        "hydra.bridges.sync",
         "hydra.capabilities.list",
         "hydra.crm.context",
         "hydra.crm.get",
@@ -583,7 +653,7 @@ async fn mcp_contract_rest_facade_uses_authenticated_binding(
         .await?;
     assert_eq!(
         capabilities["capabilities"].as_array().map(Vec::len),
-        Some(9)
+        Some(13)
     );
 
     let binding = client
@@ -604,10 +674,34 @@ async fn mcp_contract_rest_facade_uses_authenticated_binding(
         .await?;
     assert_eq!(
         legacy_direct_write.status(),
-        reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        reqwest::StatusCode::FORBIDDEN,
         "an external bearer cannot use the local CRUD route as a direct mutation path"
     );
 
+    harness.stop();
+    Ok(())
+}
+
+#[tokio::test]
+async fn mcp_contract_rest_facade_rejects_oversized_requests(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let harness = Harness::start().await?;
+    let client = reqwest::Client::new();
+    let oversized = format!(
+        "{{\"deal_id\":\"{}\",\"stage\":\"won\",\"rationale\":\"{}\",\"idempotency_key\":\"contract-key\"}}",
+        Uuid::new_v4(),
+        "x".repeat(1_048_576)
+    );
+
+    let response = client
+        .post(harness.url("/v1/nexus/proposals/stage-change"))
+        .bearer_auth(&harness.token)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(oversized)
+        .send()
+        .await?;
+
+    assert_eq!(response.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
     harness.stop();
     Ok(())
 }

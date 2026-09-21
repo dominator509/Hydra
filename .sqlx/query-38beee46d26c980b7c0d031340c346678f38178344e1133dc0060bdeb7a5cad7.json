@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM hydra_session WHERE user_id = $1 AND tenant_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "38beee46d26c980b7c0d031340c346678f38178344e1133dc0060bdeb7a5cad7"
+}

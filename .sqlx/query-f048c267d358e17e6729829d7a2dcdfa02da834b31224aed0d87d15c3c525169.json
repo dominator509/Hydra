@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE bridge_sync_run\n            SET status = 'failed', error = $3, conflict_count = $4,\n                finished_at = now()\n            WHERE tenant_id = $1 AND id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f048c267d358e17e6729829d7a2dcdfa02da834b31224aed0d87d15c3c525169"
+}

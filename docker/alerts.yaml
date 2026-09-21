@@ -1,6 +1,7 @@
 # EP-008: Prometheus alerting rules.
-# Scraped by the Prometheus instance defined in docker/compose.yaml (once
-# Prometheus and Grafana services are added — see EP-008 Outcomes).
+# Loaded by the optional Prometheus service in the `observability` Compose
+# profile. Grafana remains intentionally operator-owned and is not required
+# for alert evaluation.
 groups:
   - name: hydra_alerts
     rules:

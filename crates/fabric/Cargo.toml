@@ -20,7 +20,6 @@ rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-sqlx.workspace = true
 store = { path = "../store", version = "0.1.0" }
 thiserror.workspace = true
 tokenkiller = { path = "../tokenkiller", version = "0.1.0" }

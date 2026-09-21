@@ -18,6 +18,24 @@ pub enum ProviderTag {
     Private,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ProviderPrivacy {
+    #[default]
+    Unknown,
+    Public,
+    Private,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderProvenance {
+    pub provider: String,
+    pub model: String,
+    pub gateway: String,
+    pub privacy: ProviderPrivacy,
+    pub requested_max_tokens: u32,
+    pub output_budget_bytes: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct RouteCfg {
     pub provider: String,
@@ -47,6 +65,7 @@ pub struct CompletionRequest {
     pub provider: String,
     pub prompt: Prompt,
     pub max_tokens: u32,
+    pub output_budget_bytes: usize,
     pub pii: bool,
 }
 
@@ -57,6 +76,7 @@ pub struct CompletionResponse {
     pub usage: CacheUsage,
     pub out_tokens: u64,
     pub cost_cents: u32,
+    pub provenance: ProviderProvenance,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -90,6 +110,7 @@ pub struct Contracted {
     pub repaired: bool,
     pub prompt: Prompt,
     pub ledger_row: LedgerRow,
+    pub provenance: ProviderProvenance,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -170,6 +191,7 @@ impl Session {
                     provider: cfg.provider.clone(),
                     prompt: prompt.clone(),
                     max_tokens: cfg.max_tokens,
+                    output_budget_bytes: cfg.output_budget_bytes,
                     pii: cfg.pii,
                 })
                 .await?;
@@ -249,6 +271,7 @@ impl Session {
                 repaired,
                 prompt,
                 ledger_row: row,
+                provenance: response.provenance,
             });
         }
 
@@ -445,6 +468,7 @@ mod tests {
             },
             out_tokens: 42,
             cost_cents: 7,
+            provenance: Default::default(),
         };
         let second = CompletionResponse {
             provider: "deepseek".into(),
@@ -455,6 +479,7 @@ mod tests {
             },
             out_tokens: 32,
             cost_cents: 3,
+            provenance: Default::default(),
         };
         let (session, ledger, router) = session(
             FakeRouter::new(vec![Ok(first), Ok(second)]),
@@ -510,6 +535,7 @@ mod tests {
             },
             out_tokens: 8,
             cost_cents: 1,
+            provenance: Default::default(),
         };
         let second = CompletionResponse {
             provider: "deepseek".into(),
@@ -520,6 +546,7 @@ mod tests {
             },
             out_tokens: 16,
             cost_cents: 2,
+            provenance: Default::default(),
         };
         let (session, ledger, _) = session(
             FakeRouter::new(vec![Ok(first), Ok(second)]),

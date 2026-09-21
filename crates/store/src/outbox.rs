@@ -64,6 +64,21 @@ impl OutboxRepo {
         Self { pool }
     }
 
+    /// Count canonical events that were parked after a non-retryable contract
+    /// failure. Parked rows remain authoritative and require operator review.
+    pub async fn parked_count(&self) -> Result<i64, StoreError> {
+        let row = sqlx::query!(
+            r#"
+            SELECT COUNT(*)::BIGINT AS "count!"
+            FROM outbox
+            WHERE parked_at IS NOT NULL
+            "#
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.count)
+    }
+
     pub async fn get_by_event_id(&self, event_id: Uuid) -> Result<OutboxRecord, StoreError> {
         let row = sqlx::query_as!(
             OutboxRow,
@@ -91,6 +106,52 @@ impl OutboxRepo {
         .await?
         .ok_or(StoreError::NotFound)?;
         row_to_record(row)
+    }
+
+    /// Return validated canonical events in stable outbox order for an
+    /// explicit recovery replay. This is read-only and never claims rows.
+    pub async fn list_for_replay(
+        &self,
+        after_id: i64,
+        limit: i64,
+    ) -> Result<Vec<OutboxRecord>, StoreError> {
+        if after_id < 0 || !(1..=1000).contains(&limit) {
+            return Err(StoreError::Invariant(
+                "event replay cursor must be non-negative and limit must be between 1 and 1000"
+                    .to_owned(),
+            ));
+        }
+
+        let rows = sqlx::query_as!(
+            OutboxRow,
+            r#"
+            SELECT
+                id,
+                event_id,
+                subject,
+                event as "event!: Json<Value>",
+                created_at,
+                published_at,
+                attempt_count,
+                last_error,
+                parked_at,
+                jetstream_sequence,
+                claim_token,
+                claimed_at,
+                trace_context as "trace_context: Json<Value>"
+            FROM outbox
+            WHERE id > $1
+              AND parked_at IS NULL
+            ORDER BY id ASC
+            LIMIT $2
+            "#,
+            after_id,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(row_to_record).collect()
     }
 
     pub async fn claim_pending(

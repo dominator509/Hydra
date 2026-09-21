@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
 use crate::{
-    extract_anthropic_text, non_caching_usage, normalize_base_url, output_tokens, ChatRequest,
-    JsonHttpClient, LlmProvider, Pricing, ProviderResponse, Tag,
+    extract_anthropic_text, non_caching_usage, normalize_base_url, output_tokens,
+    provider_provenance, ChatRequest, JsonHttpClient, LlmProvider, Pricing, ProviderResponse, Tag,
 };
 
 const TAGS: [Tag; 1] = [Tag::Frontier];
@@ -23,6 +23,19 @@ impl AnthropicProvider {
             api_key,
             model: "claude-3-5-sonnet".into(),
         }
+    }
+
+    pub fn new_with_proxy(
+        base_url: impl Into<String>,
+        api_key: Option<String>,
+        proxy_url: Option<&str>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            http: JsonHttpClient::new_with_proxy(proxy_url)?,
+            base_url: base_url.into(),
+            api_key,
+            model: "claude-3-5-sonnet".into(),
+        })
     }
 }
 
@@ -62,6 +75,13 @@ impl LlmProvider for AnthropicProvider {
             out_tokens,
             cost_cents,
             provider: self.name(),
+            provenance: provider_provenance(
+                self.name(),
+                &self.model,
+                "anthropic",
+                tokenkiller::ProviderPrivacy::Public,
+                req,
+            ),
         })
     }
 }

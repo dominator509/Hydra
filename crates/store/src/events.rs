@@ -46,6 +46,20 @@ impl EventProvenance {
         }
     }
 
+    pub fn for_bridge_envelope(
+        envelope: &governor::ActionEnvelope,
+        adapter_id: impl Into<String>,
+        trace_context: Option<TraceContext>,
+    ) -> Self {
+        let mut provenance = Self::bridge(format!("bridge:{}", adapter_id.into()));
+        provenance.external_binding_id = envelope.invocation.external_binding_id;
+        provenance.correlation_id = envelope.invocation.correlation_id.clone();
+        provenance.causation_id = envelope.invocation.causation_id.clone();
+        provenance.envelope_id = Some(envelope.id);
+        provenance.trace_context = trace_context;
+        provenance
+    }
+
     pub fn for_envelope_proposal(envelope: &governor::ActionEnvelope) -> Self {
         let actor_id = envelope
             .invocation

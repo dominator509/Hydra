@@ -7,6 +7,10 @@ use crate::auth::Scope;
 
 pub const RUNTIME_PIPELINE_MOVE_STAGE_DEAL: &str = "execution-handler:pipeline/move_stage/deal";
 pub const RUNTIME_TENANT_SCOPED_ENVELOPE_GET: &str = "envelope-store:tenant-scoped-get";
+pub const RUNTIME_BRIDGE_DEPLOY_ADAPTER: &str = "execution-handler:bridges/deploy_adapter/*";
+pub const RUNTIME_BRIDGE_PAUSE_ADAPTER: &str = "execution-handler:bridges/pause_adapter/*";
+pub const RUNTIME_BRIDGE_RESUME_ADAPTER: &str = "execution-handler:bridges/resume_adapter/*";
+pub const RUNTIME_BRIDGE_SYNC_ADAPTER: &str = "execution-handler:bridges/sync_adapter/*";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -401,6 +405,112 @@ fn nexus_v1_descriptors() -> Vec<CapabilityDescriptor> {
             vec!["hydra.search_entities"],
         ),
         capability(
+            "hydra.bridges.deploy",
+            CapabilityCategory::Command,
+            "Propose governed activation of a prebuilt, digest-pinned Hydra bridge component.",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["adapter_id", "wiring_ref", "grant", "rationale", "idempotency_key"],
+                "properties": {
+                    "adapter_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+                    "wiring_ref": { "type": "string", "minLength": 1, "maxLength": 256 },
+                    "grant": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["origins", "secret_names", "fuel"],
+                        "properties": {
+                            "origins": { "type": "array", "items": { "type": "string" } },
+                            "secret_names": { "type": "array", "items": { "type": "string" } },
+                            "dsn_name": { "type": ["string", "null"] },
+                            "fuel": { "type": "integer", "minimum": 1 }
+                        }
+                    },
+                    "rationale": { "type": "string", "minLength": 1, "maxLength": 2000 },
+                    "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 200 },
+                    "config": { "type": "object" }
+                }
+            }),
+            governed_receipt_schema(),
+            vec![Scope::BridgesAdmin],
+            RiskClass::Moderate,
+            ReversalSemantics::RequiresCompensation,
+            IdempotencySemantics::RequiredKey,
+            Some(GovernorBinding {
+                domain: "bridges".to_owned(),
+                action: "deploy_adapter".to_owned(),
+                kind: None,
+            }),
+            ExecutionMode::Asynchronous,
+            false,
+            Some("prebuilt bridge lifecycle runtime is not configured"),
+            vec![RUNTIME_BRIDGE_DEPLOY_ADAPTER],
+            vec![],
+        ),
+        capability(
+            "hydra.bridges.pause",
+            CapabilityCategory::Command,
+            "Propose a governed pause of an active Hydra bridge adapter.",
+            bridge_lifecycle_input_schema(),
+            governed_receipt_schema(),
+            vec![Scope::BridgesAdmin],
+            RiskClass::Low,
+            ReversalSemantics::Reversible,
+            IdempotencySemantics::RequiredKey,
+            Some(GovernorBinding {
+                domain: "bridges".to_owned(),
+                action: "pause_adapter".to_owned(),
+                kind: None,
+            }),
+            ExecutionMode::Asynchronous,
+            false,
+            Some("prebuilt bridge lifecycle runtime is not configured"),
+            vec![RUNTIME_BRIDGE_PAUSE_ADAPTER],
+            vec![],
+        ),
+        capability(
+            "hydra.bridges.resume",
+            CapabilityCategory::Command,
+            "Propose a governed resume of a paused Hydra bridge adapter after re-probing it.",
+            bridge_lifecycle_input_schema(),
+            governed_receipt_schema(),
+            vec![Scope::BridgesAdmin],
+            RiskClass::Low,
+            ReversalSemantics::Reversible,
+            IdempotencySemantics::RequiredKey,
+            Some(GovernorBinding {
+                domain: "bridges".to_owned(),
+                action: "resume_adapter".to_owned(),
+                kind: None,
+            }),
+            ExecutionMode::Asynchronous,
+            false,
+            Some("prebuilt bridge lifecycle runtime is not configured"),
+            vec![RUNTIME_BRIDGE_RESUME_ADAPTER],
+            vec![],
+        ),
+        capability(
+            "hydra.bridges.sync",
+            CapabilityCategory::Command,
+            "Propose a governed incremental synchronization page from an active Hydra bridge into canonical CRM data.",
+            bridge_sync_input_schema(),
+            governed_receipt_schema(),
+            vec![Scope::BridgesAdmin],
+            RiskClass::Moderate,
+            ReversalSemantics::RequiresCompensation,
+            IdempotencySemantics::RequiredKey,
+            Some(GovernorBinding {
+                domain: "bridges".to_owned(),
+                action: "sync_adapter".to_owned(),
+                kind: None,
+            }),
+            ExecutionMode::Asynchronous,
+            false,
+            Some("prebuilt bridge lifecycle runtime is not configured"),
+            vec![RUNTIME_BRIDGE_SYNC_ADAPTER],
+            vec![],
+        ),
+        capability(
             "hydra.crm.timeline",
             CapabilityCategory::Query,
             "Return a bounded canonical event timeline for an entity or the bound business.",
@@ -528,6 +638,47 @@ fn empty_object_schema() -> Value {
     json!({ "type": "object", "additionalProperties": false })
 }
 
+fn bridge_lifecycle_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["adapter_id", "rationale", "idempotency_key"],
+        "properties": {
+            "adapter_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "rationale": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+    })
+}
+
+fn bridge_sync_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["adapter_id", "kind", "limit", "rationale", "idempotency_key"],
+        "properties": {
+            "adapter_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "rationale": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+    })
+}
+
+fn governed_receipt_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["envelope_id", "state", "decision"],
+        "properties": {
+            "envelope_id": { "type": "string", "format": "uuid" },
+            "state": { "type": "string" },
+            "decision": { "type": "string" }
+        }
+    })
+}
+
 fn entity_output_schema() -> Value {
     json!({
         "type": "object",
@@ -560,6 +711,10 @@ mod tests {
         assert_eq!(
             names,
             vec![
+                "hydra.bridges.deploy",
+                "hydra.bridges.pause",
+                "hydra.bridges.resume",
+                "hydra.bridges.sync",
                 "hydra.capabilities.list",
                 "hydra.crm.context",
                 "hydra.crm.get",
@@ -605,5 +760,20 @@ mod tests {
         assert!(!proposal.available);
         assert!(proposal.unavailable_reason.is_some());
         assert_eq!(proposal.idempotency, IdempotencySemantics::RequiredKey);
+
+        for name in [
+            "hydra.bridges.deploy",
+            "hydra.bridges.pause",
+            "hydra.bridges.resume",
+            "hydra.bridges.sync",
+        ] {
+            assert!(registry.get(name).is_some());
+            assert!(
+                !registry
+                    .get(name)
+                    .expect("bridge capability exists")
+                    .available
+            );
+        }
     }
 }

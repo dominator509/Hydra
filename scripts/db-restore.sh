@@ -1,11 +1,11 @@
 #!/usr/bin/env sh
-# EP-008: Database restore to a verification database.
+# EP-020: Database restore to a generated ephemeral verification database.
 #
 # Usage:  scripts/db-restore.sh <dump-file>
 #
-# NEVER restores into the live database.  Always restores into a fresh
-# database named hydra_restore_check (created on the fly) and validates
-# the archive structure with pg_restore --no-owner.
+# NEVER restores into the live database. The helper refuses production
+# environment markers, requires HYDRA_RESTORE_CONFIRM=ephemeral, generates
+# its own target database name, and removes that target on exit.
 #
 # Dependencies:
 #   - pg_restore, createdb, dropdb (PostgreSQL client tools)
@@ -28,12 +28,48 @@ if [ ! -f "$DUMP_FILE" ]; then
   exit 1
 fi
 
-RESTORE_DB="hydra_restore_check"
+if [ "${HYDRA_RESTORE_CONFIRM:-}" != "ephemeral" ]; then
+  echo "ERROR: set HYDRA_RESTORE_CONFIRM=ephemeral for a disposable restore check" >&2
+  exit 1
+fi
 
-# Drop and recreate the restore-check database to start clean.
-dropdb --if-exists "$RESTORE_DB" 2>/dev/null
-createdb "$RESTORE_DB"
+case "${HYDRA_ENV:-dev}" in
+  prod|production)
+    echo "ERROR: restore verification is refused when HYDRA_ENV is production" >&2
+    exit 1
+    ;;
+esac
 
-pg_restore --no-owner --dbname="$RESTORE_DB" "$DUMP_FILE" 2>&1
+if ! pg_restore --list "$DUMP_FILE" >/dev/null; then
+  echo "ERROR: dump archive validation failed" >&2
+  exit 1
+fi
+
+TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
+RESTORE_DB="hydra_restore_check_${$}_${TIMESTAMP}"
+CREATED=0
+
+cleanup() {
+  if [ "$CREATED" -eq 1 ]; then
+    if ! dropdb --if-exists --maintenance-db=postgres "$RESTORE_DB"; then
+      echo "ERROR: failed to remove ephemeral restore database: $RESTORE_DB" >&2
+      return 1
+    fi
+  fi
+}
+trap cleanup EXIT HUP INT TERM
+
+createdb --maintenance-db=postgres "$RESTORE_DB"
+CREATED=1
+
+if ! pg_restore \
+  --exit-on-error \
+  --single-transaction \
+  --no-owner \
+  --dbname="$RESTORE_DB" \
+  "$DUMP_FILE"; then
+  echo "ERROR: restore verification failed" >&2
+  exit 1
+fi
 
 echo "restore: ok"

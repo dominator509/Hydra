@@ -633,7 +633,8 @@ async fn authz_integration_tk_ledger_requires_local_identity(
 }
 
 #[tokio::test]
-async fn authz_integration_missing_tenant_is_422() -> Result<(), Box<dyn std::error::Error>> {
+async fn authz_integration_missing_tenant_is_denied_without_identity(
+) -> Result<(), Box<dyn std::error::Error>> {
     if !db_available() {
         eprintln!("skipping: DATABASE_URL not set");
         return Ok(());
@@ -643,15 +644,15 @@ async fn authz_integration_missing_tenant_is_422() -> Result<(), Box<dyn std::er
         let (addr, _state) = spawn_test_app(db.pool.clone()).await?;
         let client = reqwest::Client::new();
 
-        // Endpoints that require x-hydra-tenant but don't get it should 422.
+        // An unauthenticated request is denied before any tenant input is parsed.
         let resp = client
             .get(format!("http://{addr}/v1/autonomy/cells"))
             .send()
             .await?;
         assert_eq!(
             resp.status(),
-            reqwest::StatusCode::UNPROCESSABLE_ENTITY,
-            "missing tenant header should fail with 422"
+            reqwest::StatusCode::FORBIDDEN,
+            "missing identity must fail closed before tenant parsing"
         );
 
         Ok::<(), Box<dyn std::error::Error>>(())

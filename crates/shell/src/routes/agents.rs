@@ -1,6 +1,6 @@
 use askama::Template;
-use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{Extension, State};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 
 use crate::csrf::CsrfToken;
@@ -49,16 +49,15 @@ struct RouteStat {
 
 pub async fn agents_console(
     State(state): State<fabric::AppState>,
-    headers: HeaderMap,
+    Extension(auth): Extension<fabric::AuthCtx>,
 ) -> impl IntoResponse {
     let token = CsrfToken::generate();
-    let tenant = routes::tenant_or_default(&headers);
-    let _ = tenant;
 
     let window_stats = match state.tk_stats.window("24h").await {
         Ok(stats) => stats,
         Err(e) => {
-            let mut ctx = routes::PageCtx::new("Agent Console", "agents", &headers, &token);
+            let mut ctx =
+                routes::PageCtx::new("Agent Console", "agents", Some(auth.tenant), &token);
             ctx = ctx.with_flash(FlashMessage::error(format!("Failed to load TK stats: {e}")));
             let template = AgentsTemplate {
                 title: ctx.title,
@@ -121,7 +120,7 @@ pub async fn agents_console(
         });
     }
 
-    let ctx = routes::PageCtx::new("Agent Console", "agents", &headers, &token);
+    let ctx = routes::PageCtx::new("Agent Console", "agents", Some(auth.tenant), &token);
     let template = AgentsTemplate {
         title: ctx.title,
         tenant: ctx.tenant,

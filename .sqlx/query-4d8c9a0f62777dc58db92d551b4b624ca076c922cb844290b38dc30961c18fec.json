@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT tenant_id, adapter_id, kind, cursor, revision, updated_at\n            FROM bridge_sync_state\n            WHERE tenant_id = $1 AND adapter_id = $2 AND kind = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "adapter_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "cursor",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "revision",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4d8c9a0f62777dc58db92d551b4b624ca076c922cb844290b38dc30961c18fec"
+}

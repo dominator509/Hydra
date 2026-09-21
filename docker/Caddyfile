@@ -19,10 +19,18 @@
 		Permissions-Policy "geolocation=(), microphone=(), camera=()"
 	}
 
-	# Reverse proxy to kernel
-	reverse_proxy kernel:8080 {
-		health_uri /healthz
-		health_interval 30s
-		health_timeout 5s
+	# Metrics are scraped directly by internal Prometheus, never through public ingress.
+	@private_metrics path /metrics*
+	handle @private_metrics {
+		respond "Not Found" 404
+	}
+
+	# All remaining public application traffic is proxied to Kernel.
+	handle {
+		reverse_proxy kernel:8080 {
+			health_uri /healthz
+			health_interval 30s
+			health_timeout 5s
+		}
 	}
 }

@@ -1,5 +1,5 @@
 use askama::Template;
-use axum::extract::{Form, Path, State};
+use axum::extract::{Extension, Form, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use serde::Deserialize;
@@ -47,10 +47,10 @@ pub struct BridgeActionForm {
 
 pub async fn bridges_list(
     State(state): State<fabric::AppState>,
-    headers: HeaderMap,
+    Extension(auth): Extension<fabric::AuthCtx>,
 ) -> impl IntoResponse {
     let token = CsrfToken::generate();
-    let tenant = routes::tenant_or_default(&headers);
+    let tenant = auth.tenant;
 
     let adapter_ids = ["memcrm", "hubspot", "slack", "outlook", "teams"];
     let mut views = Vec::new();
@@ -66,7 +66,7 @@ pub async fn bridges_list(
         }
     }
 
-    let ctx = routes::PageCtx::new("Bridges", "bridges", &headers, &token);
+    let ctx = routes::PageCtx::new("Bridges", "bridges", Some(auth.tenant), &token);
     let template = BridgesTemplate {
         title: ctx.title,
         tenant: ctx.tenant,
@@ -90,14 +90,14 @@ pub async fn bridges_list(
 
 pub async fn register_bridge(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     headers: HeaderMap,
     Form(form): Form<RegisterBridgeForm>,
 ) -> impl IntoResponse {
     if routes::verify_csrf(&headers, &form._csrf_token).is_err() {
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
-    let tenant = routes::tenant_or_default(&headers);
-    let ctx = routes::auth_ctx_from_headers(&headers);
+    let tenant = auth.tenant;
 
     let adapter_id = form.adapter_id.clone();
     let request = fabric::BridgeRegisterRequest {
@@ -122,11 +122,12 @@ pub async fn register_bridge(
             dsn_name: None,
             fuel: form.fuel,
         },
+        config: serde_json::json!({}),
     };
 
-    let actor = "dev-admin";
+    let actor = auth.principal.as_str();
 
-    match state.bridges.register(&ctx, tenant, actor, request).await {
+    match state.bridges.register(&auth, tenant, actor, request).await {
         Ok(_) => {
             if let Ok(status) = state.bridges.status(tenant, &adapter_id).await {
                 let csrf = CsrfToken::generate().as_str().to_owned();
@@ -156,6 +157,7 @@ pub async fn register_bridge(
 
 pub async fn pause_bridge(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     Path(id): Path<String>,
     headers: HeaderMap,
     Form(form): Form<BridgeActionForm>,
@@ -163,11 +165,10 @@ pub async fn pause_bridge(
     if routes::verify_csrf(&headers, &form._csrf_token).is_err() {
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
-    let tenant = routes::tenant_or_default(&headers);
-    let ctx = routes::auth_ctx_from_headers(&headers);
-    let actor = "dev-admin";
+    let tenant = auth.tenant;
+    let actor = auth.principal.as_str();
 
-    match state.bridges.pause(&ctx, tenant, actor, &id).await {
+    match state.bridges.pause(&auth, tenant, actor, &id).await {
         Ok(s) => {
             let csrf = CsrfToken::generate().as_str().to_owned();
             let html = format!(
@@ -194,6 +195,7 @@ pub async fn pause_bridge(
 
 pub async fn resume_bridge(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     Path(id): Path<String>,
     headers: HeaderMap,
     Form(form): Form<BridgeActionForm>,
@@ -201,11 +203,10 @@ pub async fn resume_bridge(
     if routes::verify_csrf(&headers, &form._csrf_token).is_err() {
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
-    let tenant = routes::tenant_or_default(&headers);
-    let ctx = routes::auth_ctx_from_headers(&headers);
-    let actor = "dev-admin";
+    let tenant = auth.tenant;
+    let actor = auth.principal.as_str();
 
-    match state.bridges.resume(&ctx, tenant, actor, &id).await {
+    match state.bridges.resume(&auth, tenant, actor, &id).await {
         Ok(s) => {
             let csrf = CsrfToken::generate().as_str().to_owned();
             let html = format!(

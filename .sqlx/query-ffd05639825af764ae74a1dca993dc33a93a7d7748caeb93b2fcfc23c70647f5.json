@@ -1,0 +1,119 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    s.id, s.tenant_id, s.adapter_id, s.kind, s.interval_seconds,\n                    s.page_limit, s.enabled, s.next_due_at, s.lease_token,\n                    s.lease_expires_at, s.last_envelope_id, s.last_started_at,\n                    s.last_finished_at, s.last_error, s.revision, s.created_at,\n                    s.updated_at\n                FROM bridge_sync_schedule s\n                JOIN bridge_adapter a\n                  ON a.tenant_id = s.tenant_id AND a.adapter_id = s.adapter_id\n                WHERE s.enabled\n                  AND s.next_due_at <= $1\n                  AND (s.lease_expires_at IS NULL OR s.lease_expires_at <= $1)\n                  AND a.state = 'active'\n                ORDER BY s.next_due_at, s.id\n                FOR UPDATE OF s SKIP LOCKED\n                LIMIT $2\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "adapter_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "interval_seconds",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "page_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "next_due_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "lease_token",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 9,
+        "name": "lease_expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_envelope_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 11,
+        "name": "last_started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "last_finished_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "revision",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 16,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ffd05639825af764ae74a1dca993dc33a93a7d7748caeb93b2fcfc23c70647f5"
+}

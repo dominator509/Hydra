@@ -354,6 +354,7 @@ fn authenticator(
             allowed_algorithms: vec![Algorithm::EdDSA],
             jwks_cache_ttl: Duration::from_secs(300),
             clock_skew: Duration::from_secs(5),
+            egress_proxy_url: None,
         },
         Arc::new(resolver),
     )

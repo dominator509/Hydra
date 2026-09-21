@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                                INSERT INTO entity (\n                                    id, kind, tenant_id, body, origin, origin_ref, version\n                                )\n                                VALUES ($1, $2, $3, $4, $5, $6, 1)\n                                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "46ffb4f6b55f683e43e23f8c1cc61f83e8d0e769c300b849119b6f5178868791"
+}

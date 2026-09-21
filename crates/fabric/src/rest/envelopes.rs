@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::auth::{AuthCtx, Role};
 use crate::error::FabricError;
-use crate::services::{tenant_from_headers, AppState, EnvelopeCreateRequest};
+use crate::services::{AppState, EnvelopeCreateRequest};
 
 #[derive(Debug, Deserialize)]
 pub struct EnvelopeListQuery {
@@ -15,46 +15,39 @@ pub struct EnvelopeListQuery {
 
 pub async fn list_envelopes(
     State(app_state): State<AppState>,
+    Extension(ctx): Extension<AuthCtx>,
     Query(query): Query<EnvelopeListQuery>,
-    headers: axum::http::HeaderMap,
 ) -> Result<Json<Vec<governor::ActionEnvelope>>, FabricError> {
-    let tenant = tenant_from_headers(&headers)?;
     let envelope_state = parse_state(&query.state)?;
-    let envelopes = app_state.envelopes.list(tenant, envelope_state).await?;
+    let envelopes = app_state.envelopes.list(ctx.tenant, envelope_state).await?;
     Ok(Json(envelopes))
 }
 
 pub async fn propose_envelope(
     State(state): State<AppState>,
     Extension(ctx): Extension<AuthCtx>,
-    headers: axum::http::HeaderMap,
     Json(request): Json<EnvelopeCreateRequest>,
 ) -> Result<Json<governor::ActionEnvelope>, FabricError> {
     ctx.require_role(Role::Operator)?;
-    let tenant = tenant_from_headers(&headers)?;
-    let envelope = state.envelopes.propose(tenant, request).await?;
+    let envelope = state.envelopes.propose(ctx.tenant, request).await?;
     Ok(Json(envelope))
 }
 
 pub async fn approve_envelope(
     State(state): State<AppState>,
     Extension(ctx): Extension<AuthCtx>,
-    headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<governor::ActionEnvelope>, FabricError> {
-    let tenant = tenant_from_headers(&headers)?;
-    let envelope = state.envelopes.approve(&ctx, tenant, id).await?;
+    let envelope = state.envelopes.approve(&ctx, ctx.tenant, id).await?;
     Ok(Json(envelope))
 }
 
 pub async fn reject_envelope(
     State(state): State<AppState>,
     Extension(ctx): Extension<AuthCtx>,
-    headers: axum::http::HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<governor::ActionEnvelope>, FabricError> {
-    let tenant = tenant_from_headers(&headers)?;
-    let envelope = state.envelopes.reject(&ctx, tenant, id).await?;
+    let envelope = state.envelopes.reject(&ctx, ctx.tenant, id).await?;
     Ok(Json(envelope))
 }
 

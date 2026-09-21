@@ -1,10 +1,10 @@
-use axum::extract::State;
-use axum::http::HeaderMap;
+use axum::extract::{Extension, State};
 use axum::Json;
 use serde::Deserialize;
 
+use crate::auth::AuthCtx;
 use crate::error::FabricError;
-use crate::services::{tenant_from_headers, AppState, ConciergePingResponse};
+use crate::services::{AppState, ConciergePingResponse};
 
 #[derive(Deserialize)]
 pub struct PingRequest {
@@ -13,10 +13,9 @@ pub struct PingRequest {
 
 pub async fn concierge_ping(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    Extension(ctx): Extension<AuthCtx>,
     Json(request): Json<PingRequest>,
 ) -> Result<Json<ConciergePingResponse>, FabricError> {
-    let tenant = tenant_from_headers(&headers)?;
-    let response = state.concierge.ping(tenant, &request.question).await?;
+    let response = state.concierge.ping(ctx.tenant, &request.question).await?;
     Ok(Json(response))
 }

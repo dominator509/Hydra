@@ -23,13 +23,15 @@ pub use capabilities::{
 };
 pub use error::{FabricError, ProblemJson};
 pub use services::{
-    AppState, AutonomyCellDto, AutonomyService, BlastRadiusDto, BridgeGrantDto,
-    BridgeRegisterRequest, BridgeService, BridgeStatusDto, ConciergePingResponse, ConciergeService,
+    A2aTaskService, AppState, AutonomyCellDto, AutonomyService, BlastRadiusDto,
+    BridgeConformanceService, BridgeGrantDto, BridgeRegisterRequest, BridgeService,
+    BridgeStatusDto, BridgeSynthesisService, ConciergePingResponse, ConciergeService,
     ConciergeServiceImpl, EntityDeleteResponse, EntityService, EnvelopeApprovalDecision,
     EnvelopeApprovalReceipt, EnvelopeApprovalRequest, EnvelopeCreateRequest, EnvelopeService,
     EventInfrastructureStatus, EventStatusService, ExecutionDispatcher, GovernedExternalProposal,
-    GovernorProvider, NexusControlPlaneConfig, StoreAutonomyService, StoreBridgeService,
-    StoreEntityService, StoreEnvelopeService, StoreTkStatsService, TkRouteStat, TkStatsService,
+    GovernorProvider, NexusControlPlaneConfig, ScheduledBridgeSyncProposal, StoreA2aTaskService,
+    StoreAutonomyService, StoreBridgeService, StoreEntityService, StoreEnvelopeService,
+    StoreTenantDataService, StoreTkStatsService, TenantDataService, TkRouteStat, TkStatsService,
     TkWindowStats,
 };
 

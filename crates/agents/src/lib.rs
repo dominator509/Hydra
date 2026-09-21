@@ -3,6 +3,7 @@
 pub mod bridge_engineer;
 pub mod comms;
 pub mod data_steward;
+pub mod skills;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]

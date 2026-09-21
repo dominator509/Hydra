@@ -1,0 +1,13 @@
+[package]
+name = "hydra-vault"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bridge-host = { path = "../bridge-host", version = "0.1.0" }
+
+[lints]
+workspace = true

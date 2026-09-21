@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT cursor\n            FROM bridge_sync_state\n            WHERE tenant_id = $1 AND adapter_id = $2 AND kind = $3\n            FOR UPDATE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cursor",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bfcd8fca186093b4d8aae9cfdd6d968d438e0465fe81e6c7c0942030ca6a36b2"
+}

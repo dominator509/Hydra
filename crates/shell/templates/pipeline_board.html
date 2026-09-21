@@ -123,6 +123,20 @@
         margin-bottom: 20px;
     }
 
+    .new-deal-disclosure > summary {
+        display: inline-block;
+        cursor: pointer;
+        list-style: none;
+    }
+
+    .new-deal-disclosure > summary::-webkit-details-marker {
+        display: none;
+    }
+
+    .new-deal-disclosure[open] > summary {
+        margin-bottom: 12px;
+    }
+
     .new-deal-form {
         display: flex;
         gap: 12px;
@@ -147,34 +161,32 @@
         <h2>Pipeline Board</h2>
         <p class="subtitle">Deal stages and agent workflow</p>
     </div>
-    <button class="btn btn-primary"
-            onclick="document.getElementById('new-deal-form').style.display = document.getElementById('new-deal-form').style.display === 'none' ? 'flex' : 'none'">
-        + New Deal
-    </button>
-</div>
-
-<div class="new-deal-area card" id="new-deal-form" style="display:none;">
-    <div class="card-header">Create New Deal</div>
-    <form action="/pipelines/new" method="post" class="new-deal-form">
-        {{ csrf|safe }}
-        <div class="form-group">
-            <label for="deal-title">Title</label>
-            <input type="text" id="deal-title" name="title" class="form-input" placeholder="Deal title" required>
+    <details class="new-deal-disclosure">
+        <summary class="btn btn-primary">+ New Deal</summary>
+        <div class="new-deal-area card" id="new-deal-form">
+            <div class="card-header">Create New Deal</div>
+            <form action="/pipelines/new" method="post" class="new-deal-form">
+                {{ csrf|safe }}
+                <div class="form-group">
+                    <label for="deal-title">Title</label>
+                    <input type="text" id="deal-title" name="title" class="form-input" placeholder="Deal title" required>
+                </div>
+                <div class="form-group">
+                    <label for="deal-stage">Stage</label>
+                    <select id="deal-stage" name="stage" class="form-select" style="min-width:140px;">
+                        {% for stage in stages %}
+                        <option value="{{ stage.name }}">{{ stage.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="deal-value">Value (cents)</label>
+                    <input type="number" id="deal-value" name="value_cents" class="form-input" placeholder="0" min="0" style="min-width:100px;">
+                </div>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </form>
         </div>
-        <div class="form-group">
-            <label for="deal-stage">Stage</label>
-            <select id="deal-stage" name="stage" class="form-select" style="min-width:140px;">
-                {% for stage in stages %}
-                <option value="{{ stage.name }}">{{ stage.name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="form-group">
-            <label for="deal-value">Value (cents)</label>
-            <input type="number" id="deal-value" name="value_cents" class="form-input" placeholder="0" min="0" style="min-width:100px;">
-        </div>
-        <button type="submit" class="btn btn-primary">Create</button>
-    </form>
+    </details>
 </div>
 
 <div class="pipeline-board">

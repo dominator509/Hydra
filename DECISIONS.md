@@ -26,8 +26,15 @@
 | 0021 | Adopt the official rmcp 3.1.2 SDK for the MCP 2025-11-25 Streamable HTTP boundary | Accepted | 2026-08-10 | Codex |
 | 0022 | Validate Nexus access tokens with pinned jsonwebtoken 9.3.1 and Hydra-owned external bindings | Accepted | 2026-08-10 | Codex |
 | 0023 | Use acknowledged async-nats JetStream publication with Store-owned outbox leases | Accepted | 2026-08-11 | Codex |
+| 0033 | Store-owned tenant export and non-destructive retention preview | Accepted | 2026-08-11 | Codex |
 | 0024 | Keep W3C trace carriers separate from durable business provenance and gate Nexus readiness on event infrastructure | Accepted | 2026-08-11 | Codex |
 | 0025 | Use the already-locked futures-util stream extension only in the fake Nexus consumer test | Accepted | 2026-08-11 | Codex |
+| 0026 | Use existing reqwest/jsonwebtoken graph only in the fake Nexus HTTP/JWT harness | Accepted | 2026-08-11 | Codex |
+| 0027 | Use a pinned age vault and runtime SecretSource boundary for named adapter secrets | Accepted | 2026-08-11 | Codex |
+| 0028 | Keep optional Nexus model, A2A, and signed skills seams bounded and non-authoritative | Accepted | 2026-08-11 | Codex |
+| 0029 | Govern prebuilt bridge lifecycle through Store, BridgeHost, and typed execution handlers | Accepted | 2026-08-11 | Codex |
+| 0032 | Make explicit outbound proxy configuration mandatory in staging and production | Accepted | 2026-08-11 | Codex |
+| 0036 | Use Store-backed atomic windows as the distributed rate-limit authority | Accepted | 2026-08-11 | Codex |
 
 ## ADR index
 ADRs live inline below; new ADRs append using `.agent/templates/adr-template.md`.
@@ -170,5 +177,908 @@ Alternatives: call service methods directly (rejected: would not prove HTTP auth
 
 Consequences: the production artifact and resolved lock graph do not gain new packages or authority. E2E tests can exercise the real external boundary with no cloud credentials, while dependency, license, secret-scan, and full verification gates still apply before EP-015 completion.
 
+### ADR-0027 Pinned age vault and runtime SecretSource boundary
+Context: Hydra's documented bridge boundary requires named credentials to remain outside Git, image layers, SQL, events, and logs, while the kernel must fail closed in staging and production when those credentials are unavailable. The repository had only `StaticSecretSource` despite documenting an age-encrypted file vault. EP-018 needs a persisted format and owner tooling without introducing a second secret authority or exposing values through the adapter ABI.
+
+Decision: pin the direct workspace dependency `age = "=0.11.1"` and use its standard scrypt passphrase-encrypted file format for a versioned, bounded JSON document. Load it only through `bridge_host::VaultSecretSource`; keep adapter access constrained by the existing per-adapter named grants; provide `hydra-vault` as a thin owner tool that reads values from stdin, lists names/status only, and rotates by decrypting with the old key before atomically replacing the file with the next key. Use the already locked `windows-sys = "=0.61.2"` only on Windows to call the platform atomic replacement API; Linux uses same-directory rename with owner-only file permissions. The dependency's published license is MIT OR Apache-2.0, and `cargo deny check` passes advisories, bans, licenses, and sources with the existing repository warnings.
+
+Alternatives: keep the documented vault as an unimplemented placeholder (rejected: production startup would not have a real secret source); invent custom encryption (rejected: unnecessary cryptographic risk and interoperability loss); store credentials in Postgres or environment variables (rejected: violates the named-secret and backup boundary); add a general secret-management service dependency (rejected: no authorized external service or credential and would couple standalone Hydra); remove and rename the existing vault on Windows (rejected: a failed replacement could destroy the last good encrypted artifact).
+
+Consequences: the kernel now constructs a loaded read-only source in configured staging/production mode and disables only bridge secrets for an absent development vault. Invalid, unreadable, missing, or undecryptable staging/production vaults fail before serving. The encrypted artifact remains owner-operated and its restore/custody drill is still an EP-010 gap; bridge lifecycle execution remains unavailable and is not made available by loading secrets. Future vault format changes require a new document version and an explicit ADR.
+
+### ADR-0028 Optional Nexus model, A2A, and signed skill boundaries
+Context: EP-011 through EP-015 established the required authenticated Nexus CRM seam, while EP-016 was intentionally deferred. The current A2A specification has a released 1.0.0 protocol with JSON-RPC PascalCase methods and a durable task model. The upstream Agent Skills specification defines `SKILL.md` packaging and progressive disclosure but does not define a signature or execution trust protocol. Hydra must add these optional features without creating an agent authority path, bypassing TOKENKILLER, or making Nexus a runtime dependency.
+
+Decision: implement an optional OpenAI-compatible `nexus` LLM provider inside `llm-router`, sourced through TOKENKILLER and the named-secret vault; add provider/privacy/budget provenance to the existing TK response contract; implement a durable tenant-scoped A2A 1.0 JSON-RPC facade with only `SendMessage`, `GetTask`, `ListTasks`, and `CancelTask`; and define a Hydra-local `hydra-skill.json` Ed25519 JWS manifest over the upstream `SKILL.md` content hash. Reuse the already locked `serde_yaml` 0.9.34, `jsonwebtoken` 9.3.1, and `sha2` 0.10.9 graph for metadata and signature verification rather than adding a package manager or a second crypto stack. Unsupported A2A streaming/push and unimplemented bridge workflows remain explicitly unavailable. Skill discovery is declarative and never executes package scripts or grants credentials/tools.
+
+Alternatives: add a full A2A SDK or an unreviewed skill package manager (rejected: no dependency/license fit has been proven and the required surface is bounded); invent a second CRM/workflow store (rejected: Store remains the only SQL boundary and tasks are an additive persistence record); let skills carry HMAC secrets or tool lists (rejected: violates least authority and named-secret policy); call a Nexus model from agents directly (rejected: violates TK-1 through TK-6).
+
+Consequences: Hydra gains optional protocol-compatible discovery and durable workflow status while standalone mode remains unchanged. The gateway token is referenced by vault name, and skill public trust anchors are owner-controlled. A2A task persistence requires additive migration `0014_a2a_tasks.sql` and refreshed SQLx metadata. Production readiness remains partial until staging protocol drills, trust-anchor custody, restore/rollback, and human sign-off are evidenced.
+
+### ADR-0029 Governed prebuilt bridge lifecycle boundary
+Context: EP-019 closes the code-owned gap between the existing Wasmtime/WIT
+BridgeHost and the governed execution path. Fabric previously represented
+bridge registration with an envelope but pause/resume could write adapter KV
+directly, while the kernel did not register a lifecycle handler. A safe first
+slice must not become a second CRM abstraction or pretend that discovery,
+synthesis, sync, canary, or promotion are implemented.
+
+Decision: persist tenant-scoped adapter identity, component reference, digest,
+grant projection, descriptor, lifecycle state, revision, and transition
+history in Store. Resolve only prebuilt components below `HYDRA_ADAPTERS_PATH`,
+probe them through the existing BridgeHost with named grants and fuel, and
+register typed `bridges/deploy_adapter`, `bridges/pause_adapter`, and
+`bridges/resume_adapter` handlers only when the component root and configured
+SecretSource are available. Fabric remains proposal-only for external
+requests and projects status from the registry; unsupported lifecycle
+capabilities remain unavailable.
+
+Alternatives: retain direct adapter KV mutation (rejected: bypasses durable
+state and governed execution); accept caller paths or raw credentials
+(rejected: violates the BridgeHost grant boundary); implement synthesis or
+sync in this seam (rejected: no accepted contract or runtime proof exists).
+
+Consequences: prebuilt bridge activation is now executable in a configured
+runtime while standalone Hydra remains valid and missing configuration fails
+closed. The registry is integration metadata and never a CRM source of truth.
+EP-010 remains partial until staging, recovery, operational, and human-owned
+evidence is available.
+
+### ADR-0030 Operational readiness and recovery helper boundary
+Context: EP-019 established local bridge lifecycle and Nexus E2E behavior, but the kernel readiness response was only a short first-failure string and the database helpers could publish an unvalidated archive or drop a fixed restore-check database without an explicit disposable-target acknowledgement. These are code-owned risks even though the D1-D5 staging drills remain operator-owned.
+
+Decision: preserve the `/healthz` and `/readyz` bodies for existing consumers, add `/readyz/details` with deterministic non-secret checks, and make configured bridge lifecycle availability part of readiness. Make backups private, temporary-file based, archive-validated, and atomically renamed. Make restore verification require `HYDRA_RESTORE_CONFIRM=ephemeral`, refuse production environment markers, generate a unique target name internally, use the `postgres` maintenance database, restore with `--exit-on-error --single-transaction`, and remove only that generated target. Cover the shell behavior with fake PostgreSQL clients in the mandatory local verifier.
+
+Alternatives: replace `/readyz` with JSON (rejected: breaks existing probes); leave helper safety to operators (rejected: the repository would continue to provide an unsafe default); execute the regression suite against the shared local database (rejected: violates the test-database safety boundary); claim D1 evidence from the helper test (rejected: a fake-client test cannot prove a staging restore).
+
+Consequences: local readiness diagnostics and helper safety are stronger and repeatable without adding dependencies or migrations. EP-010 remains partial until real staging restore/rollback, soak, recovery, security, privacy, performance, accessibility, observability, and human sign-off evidence exists.
+
+### ADR-0031 Release provenance and truthful nightly gate boundary
+Context: EP-010 still lacked a repository-defined SBOM/provenance policy, while the tag workflow pushed images without a signed digest attestation. The nightly workflow could also report success after an ignored Cargo test command discovered no tests. GitHub's current attestation action accepts a fully qualified image name plus the Buildx digest; its documented `artifact-metadata` permission is for the optional organization-owned storage-record path, which this personal repository must disable.
+
+Decision: enable `provenance: mode=max` and `sbom: true` on the release Buildx step, capture its digest, and invoke `actions/attest@v4` with `push-to-registry: true` under a least-privilege image-job permission block. Because the current repository is private and user-owned, set `create-storage-record: false` and omit `artifact-metadata: write`, which is only needed for the organization-owned storage-record path. Add a local static policy checker and make missing attestation configuration fail closed. Replace the nightly raw ignored-test command with a wrapper that preserves Cargo status and requires a positive test count, the named `c9_soak_10k` test, and an `ok` result. Use a separate finite test-only fuel grant for the 10k fixture; do not change production BridgeHost fuel policy.
+
+Alternatives: retain default BuildKit metadata (rejected: not a reviewed signed release artifact); use the legacy `attest-build-provenance` wrapper (rejected: the current official action recommends `actions/attest`); allow a warning-only or `continue-on-error` path (rejected: false-green release/nightly gates); remove or shrink the 10k soak (rejected: would weaken the required workload evidence).
+
+Consequences: the repository now expresses and statically validates the intended release boundary, and nightly local execution cannot pass with an empty ignored test set. A real GitHub tag run, registry acceptance, attestation verification, staging release, and human production-readiness evidence remain external and unexecuted. EP-010 remains partial.
+
+### ADR-0032 Explicit outbound proxy boundary
+Context: the Compose topology already isolates Tinyproxy as the intended external network path, but direct `reqwest` clients in the LLM, OIDC, Fabric, and BridgeHost seams previously relied on ambient proxy environment behavior. That is not a typed application contract and could allow staging or production startup with an unverified outbound path.
+
+Decision: add `HYDRA_EGRESS_PROXY_URL` to Kernel configuration, require an absolute HTTP(S) value without embedded credentials in staging and production, and pass it explicitly to configured external HTTP clients. Preserve unconfigured constructors only for standalone development and deterministic tests. Make a static policy checker mandatory in preflight and the full verifier.
+
+Alternatives: rely on `HTTP_PROXY`/`HTTPS_PROXY` alone (rejected: ambient behavior is not fail-closed configuration); route database or NATS traffic through the proxy (rejected: unrelated internal boundaries); redesign Tinyproxy allowlists in this plan (rejected: destination policy is a separate operator-controlled concern); or remove test constructors (rejected: would break deterministic offline validation and standalone operation).
+
+Consequences: missing or malformed proxy configuration fails before staging/production runtime startup, and proxy URLs are not echoed in errors. Local tests prove construction and policy wiring only; real staging DNS/TLS, ACL, IdP, and external-provider evidence remains EP-010 work.
+
+### ADR-0033 Store-owned tenant export and non-destructive retention preview
+Context: EP-010 requires privacy/data evidence, but Hydra does not yet have an owner-approved retention duration, purge scheduler, or staging export demonstration. The existing Store already owns canonical tenant data, soft-delete state, append-only event history, outbox records, and the TOKENKILLER ledger. A read-only projection is the smallest code-owned seam that improves operator visibility without creating a second CRM source of truth or authorizing destructive cleanup.
+
+Decision: implement `TenantDataRepo` in Store with a versioned, bounded tenant export and an age-based retention preview. The export includes canonical entities, same-tenant relationship edges, and safe event metadata while retaining soft-deleted records. The preview reports counts and oldest/newest timestamps for soft-deleted entities and aged operational records, plus pending outbox count; it never deletes, marks, schedules, or publishes anything. Expose both through authenticated local REST routes requiring `Admin`, with tenant authority derived from the verified `AuthCtx` session. Do not accept a tenant ID from a query, path, body, or header as authority, and do not select a legal retention period in code.
+
+Alternatives: add a purge scheduler now (rejected: no owner-approved legal policy or staging safety evidence); export raw outbox/TOKENKILLER payloads (rejected: secrets, prompts, and provider data do not belong in a customer export); put SQL in Fabric (rejected: violates the six-layer law); or expose a Nexus mutation endpoint (rejected: this plan is a local read-only privacy/data seam and Nexus mutations remain governed ActionEnvelope proposals).
+
+Consequences: operators can inspect a deterministic tenant projection and estimate retention candidates locally, while soft-delete-only semantics and Postgres authority remain intact. The JSON contract is `hydra.tenant-data.v1` and is bounded at 10,000 records per export. Production readiness remains blocked on owner policy, purge/scheduling design, staging privacy/restore evidence, and human sign-off. No migration or new dependency is required; checked SQLx metadata is refreshed for the Store queries.
+
+### ADR-0034 Retire the migration-owned development seed
+Context: `migrations/0007_auth.sql` creates a fixed `admin` account in every database, and Shell form login reaches `SessionStore` without an environment guard. Existing sessions for that row could also remain usable. The historical Argon2 hash does not validate the documented `hydra-dev` password, so retaining a development exception would be both unsafe and non-functional.
+
+Decision: add migration `0016_auth_seed_hardening.sql` with additive `auth_source` and `disabled_at` fields, mark only the known migration-owned row as `development_seed` and disabled, and make `SessionStore::authenticate` and `SessionStore::lookup` reject that source in every environment. Preserve the separate `HYDRA_ENV=dev` bearer fixture as a local API test path; it does not create or re-enable a database user. Keep owner-controlled active-user/bootstrap provisioning outside this plan.
+
+Alternatives: delete the historical row (rejected: erases audit history); accept the seed only in development (rejected: fixed credential remains a dangerous path and its hash does not match the documented password); add an owner endpoint in this patch (rejected: credential custody, binding, audit, and recovery need a separate reviewed contract).
+
+Consequences: the repository has no form-login or session-lookup path for the fixed seed, while active operator credentials retain their existing role and tenant behavior. The migration is additive and includes an idempotent constraint block plus a revert note. Production/staging owner bootstrap and identity evidence remain EP-010 gaps.
+
+### ADR-0035 Recover durable approved execution without replaying uncertain work
+Context: the Governor and Store persist an envelope as `Approved`, but the Kernel's ExecuteToken delivery channel was process-local. A restart after approval could strand work. Conversely, an envelope already in `Executing` may have completed an external side effect before a crash, so blind replay could duplicate it.
+
+Decision: add a bounded Store query for tenant-qualified `Approved` identities and have the supervised ExecutorWorker scan immediately and periodically. Recovery enters the same private Executor path and relies on the existing tenant-scoped row lock and legal `Approved -> Executing` transition. Add Store-backed readiness reporting for `Executing` rows older than 15 minutes; fail closed and require operator evidence rather than automatically resetting or replaying them.
+
+Alternatives: persist a second queue in NATS or Redis (rejected: Postgres is already authoritative and a second command source would widen the boundary); expose a public ExecuteToken constructor (rejected: it would mint execution authority outside Governor); reset stale `Executing` to `Approved` (rejected: external outcome is uncertain and duplicate side effects are unsafe).
+
+Consequences: approved work survives a Kernel restart without adding a queue dependency, while ambiguous in-flight work becomes visible and blocks readiness. Local tests prove the seam, but staging crash/recovery, rollback, and operator evidence remain EP-010 gates.
+
+### ADR-0036 Store-backed distributed rate-limit authority
+Context: the production Kernel previously used a process-local fixed-window map. That permits each replica to admit its own quota and therefore cannot serve as the sole multi-replica admission boundary. Fabric already derives principal/network keys and Store is Hydra's only SQL boundary.
+
+Decision: add an additive Postgres `rate_limit_window` table and a Store repository that performs an atomic database-time upsert, caps counts at `max_requests + 1`, and prunes old windows opportunistically. Fabric persists only a versioned SHA-256 digest of the derived key. The real Kernel constructs this Store-backed limiter; local synchronous construction remains available only for deterministic tests and fixtures. Store or pruning failure returns a generic 503 and never falls back to a per-process quota.
+
+Alternatives: use Redis or NATS (rejected: introduces a second operational authority and dependency); persist raw principal, tenant, or IP text (rejected: unnecessary disclosure of operational identifiers); silently fall back to local state (rejected: creates an unbounded replica bypass); or make rate admission establish tenant authority (rejected: authentication and authorization remain separate Fabric boundaries).
+
+Consequences: replicas share one bounded Postgres admission decision, exceeded requests retain the existing 429/`Retry-After` contract, and authority outages fail closed. Local tests prove atomicity, key isolation, pruning, digest non-disclosure, and 503 mapping. Multi-replica staging behavior, outage drills, and human production sign-off remain EP-010 evidence.
+
+### ADR-0037 Bounded runtime request metrics in Kernel
+Context: the Kernel already exposed a process-local Prometheus text registry,
+but its counter and histogram mutation helpers were test-only and no real
+request path recorded request totals or latency. EP-010 still requires live
+observability evidence, so local instrumentation must be useful without
+pretending to provide dashboards or alert delivery.
+
+Decision: enable the existing counter and histogram helpers for runtime use and
+install a Kernel L6 middleware that records method, fixed route taxonomy,
+status class, and duration. Unknown or user-shaped paths map to `/other`,
+query strings are ignored, and no tenant, identity, token, or customer data is
+stored in labels. Keep the registry process-local and preserve `/metrics` as
+the existing diagnostic surface; live scrape authentication, dashboards,
+alerts, and staging drills remain EP-010 work.
+
+Alternatives: record raw paths (rejected: unbounded cardinality and possible
+identifier disclosure); add a new telemetry dependency (rejected: outside
+this bounded seam); or claim local counters as production observability
+evidence (rejected: no live monitoring or operational drill occurred).
+
+Consequences: running Kernel requests now contribute bounded totals and
+latency to `/metrics`, while a restart resets the diagnostic registry and
+multi-replica aggregation remains an operator-owned deployment concern. No
+database, dependency, external endpoint, or production behavior changed.
+
+### ADR-0038 Owner-operated bootstrap without an HTTP authority path
+Context: migration 0016_auth_seed_hardening.sql disables the historical
+development seed, while Nexus authentication requires an active operator
+identity and an explicit external business-to-Hydra tenant binding. Direct SQL
+would bypass Store validation and create an undocumented provisioning path.
+
+Decision: add the Rust-only hydra-admin binary and an OperatorRepo in Store.
+The binary reads passwords from stdin, uses Fabric's Argon2id helper, requires
+HYDRA_ADMIN_CONFIRM=I_UNDERSTAND for mutations, and exposes only operator
+create/list/status plus binding create/status operations. User creation is
+transactional, disabling deletes only that user's active sessions, and
+bindings retain their rows while changing their existing soft status. The
+tool never runs migrations and is not reachable through HTTP, MCP, or Nexus.
+
+Alternatives: add a public bootstrap endpoint (rejected: it would widen the
+remote authority surface); revive the seed (rejected: fixed credentials are
+not acceptable); or issue direct SQL runbooks (rejected: it would violate the
+Store-only SQL boundary).
+
+Consequences: an owner has a supported path to provision the identities needed
+by the existing control plane, while credential custody, staging identity,
+backup/recovery, and human production approval remain explicit operator-owned
+gates. No new dependency or migration was required.
+
+### ADR-0039 Supervise Kernel lifecycle and bound dependency operations
+Context: the Kernel previously waited only for Ctrl-C, while Docker and most
+orchestrators terminate Unix processes with SIGTERM. Relay and executor tasks
+were joined only after HTTP serving ended, and readiness could wait
+indefinitely on a database, NATS, event-status, or recovery operation. A
+process that silently loses a required worker can therefore continue serving
+requests without an honest readiness signal.
+
+Decision: use existing Tokio signal, watch, and time facilities to unify
+Ctrl-C, SIGTERM, and internally requested shutdown. Keep relay and executor
+handles under a Kernel supervisor; an unexpected early exit requests a
+coordinated drain and returns a failure, while normal shutdown joins each task
+within `HYDRA_SHUTDOWN_TIMEOUT_SECONDS` and aborts only an owned task that
+exceeds the bound. Add drop-safe executor health and expose shutdown/worker
+state through the existing readiness contract. Bound startup and individual
+readiness dependency operations with `HYDRA_DEPENDENCY_TIMEOUT_SECONDS`.
+
+Alternatives: rely on the container's default SIGTERM behavior (rejected:
+the process can terminate without draining or marking readiness); detach
+background tasks (rejected: failure would be silent); add a second supervisor
+dependency (rejected: Tokio already supplies the required primitives); or
+replace `/readyz` with a new response contract (rejected: existing probes
+must remain compatible).
+
+Consequences: local process behavior is deterministic and fail-closed under
+task failure or dependency stalls, with no new dependency, migration, or
+database authority. Local tests do not prove an orchestrator's actual signal
+delivery or staging drain time; termination-drain, crash-loop, and human
+operational evidence remain EP-010 gaps.
+
 ## Rules for adding decisions
 Any new dependency, schema change, ABI change, autonomy-cell default change, or S0–S2 prompt-segment change requires an ADR entry BEFORE merge.
+
+### ADR-0040 Durable tenant autonomy freeze overlay
+Context: the D5 operational procedure named a `hydra cell freeze` command,
+but Hydra had no durable freeze state. Replacing autonomy cells directly
+would destroy the pre-freeze matrix, would not provide a clear operator
+status, and could leave the persisted Governor cache serving stale autonomy.
+
+Decision: add an additive Store-owned `autonomy_freeze` overlay keyed by
+Hydra tenant. When frozen, matrix resolution presents every stored cell as
+canonical L1 while preserving the stored levels for thaw. Freeze/thaw bumps
+the existing tenant autonomy revision and emits one bounded
+`autonomy.freeze_changed` event for each actual state change. Expose the
+mutation only through the existing confirmation-gated `hydra-admin` binary;
+do not add a public HTTP or agent authority path.
+
+Consequences: newly proposed actions become `SuggestOnly` under L1 and
+already-dispatched ExecuteTokens are not revoked or replayed. The control is
+tenant-safe and cache-safe locally, but staging D5 timing and operator
+evidence remain EP-010 requirements.
+
+The freeze transition also uses the typed
+`hydra.crm.autonomy.freeze_changed.v1` event and canonical outbox path so
+Nexus consumers observe the operational boundary without direct database
+access.
+
+### ADR-0041 Optional internal observability profile
+
+The repository's Kernel metrics and Prometheus alert rules are wired through
+an explicit, profile-gated Prometheus/Alertmanager pair. Prometheus may reach
+only the Kernel metrics endpoint over an internal ingress network, and
+Alertmanager is isolated on a separate internal observability network. The
+checked-in receiver has no outbound destination; staging and production must
+provide an operator-reviewed notification override. This keeps standalone
+Hydra unchanged, avoids inventing a secret or external endpoint, and makes
+local rule evaluation executable without overstating EP-010 evidence.
+
+### ADR-0042 Optional scheduled Postgres backup profile
+
+The existing atomic `db-backup.sh` helper is invoked by an explicit `backup`
+Compose profile using `postgres:16-alpine` client tools. The service has only
+`data-internal` access, writes to a named local volume, validates a minimum
+interval, and exits on helper failure. It never prunes archives, performs a
+restore, or copies data off host. This closes the local scheduling seam while
+leaving retention, off-box replication, JetStream/vault recovery, and staging
+evidence under operator control.
+
+### ADR-0043 Bounded TOKENKILLER bridge-mapping synthesis
+
+Context: EP-019 intentionally left BridgeEngineer synthesis unavailable because
+there was no accepted contract for model-mediated bridge work. Hydra already
+has a bounded `MappingYaml` TOKENKILLER contract, a provider-neutral router,
+and durable authenticated A2A tasks. The missing seam is a reviewable mapping
+proposal, not a reason to generate or execute adapter code.
+
+Decision: add the existing `tokenkiller` path dependency to `agents` and route
+BridgeEngineer mapping proposals through `Session::complete("bridge_mapping")`
+with fixed S0-S2 segments, bounded metadata, NukeGuard/repair/ledger behavior,
+strict post-contract validation, deterministic YAML normalization, and redacted
+provider provenance. Kernel constructs the optional runtime over its existing
+router and Store ledger sink; Fabric exposes it only through authenticated,
+tenant-scoped, idempotent A2A proposal tasks. Wasmtime activation, sync,
+conformance, canary, promotion, ActionEnvelope approval, and CRM mutation are
+explicitly outside this seam.
+
+Alternatives: use the historical `bridge_codegen` route (rejected: it would
+create executable output before review); call `llm-router` from agents (rejected:
+violates TK-1 through TK-6 and the layer law); add a synthesis table (rejected:
+existing A2A task persistence is sufficient); or report availability without a
+runtime handler (rejected: capability truth must reflect configured support).
+
+Consequences: configured runtimes report Experimental mapping synthesis and
+standalone runtimes remain disabled without changing existing behavior. The
+proposal artifact is non-executable and A2A failures become bounded durable
+`failed` tasks. EP-019's activation boundary and EP-010 production-readiness
+evidence remain open.
+
+### ADR-0044 Tenant-scoped bridge scratch state
+
+Context: EP-019 made adapter identity tenant-scoped, but the historical
+`adapter_kv` table used only `(adapter_id, k)`. Two tenants using the same
+adapter ID could therefore share scratch state if the old Store path remained
+active.
+
+Decision: add `tenant_adapter_kv` with primary key
+`(tenant_id, adapter_id, k)`, require the governed envelope tenant in
+BridgeHost lifecycle probes, and keep the old unscoped Store methods only as
+fail-closed compatibility shims. Do not assign tenants to historical rows;
+they contain no authoritative tenant identity.
+
+Alternatives: keep the global table (rejected: violates tenant isolation),
+delete or rewrite historical rows (rejected: destructive and unauthorized),
+or guess ownership from adapter configuration (rejected: configuration is not
+tenant authority).
+
+Consequences: equal adapter IDs are isolated in new runtime paths and old
+callers receive a deterministic invariant error. Synchronization and legacy
+row migration remain unavailable until a separately governed plan establishes
+an authoritative migration policy.
+
+### ADR-0045 Governed manual bridge synchronization
+
+Context: EP-019 intentionally stopped at governed prebuilt activation, pause,
+and resume, while the existing WIT ABI already exposed an incremental
+`changes-since` feed. Applying that feed needs durable cursor ownership,
+conflict handling, and a tenant-safe external request path without creating a
+second CRM abstraction.
+
+Decision: add one manually invoked `hydra.bridges.sync` capability. MCP and
+`POST /v1/nexus/bridges/{id}/sync` create the same authenticated,
+idempotent ActionEnvelope. The Kernel invokes `changes-since` only through the
+existing BridgeHost grants and typed handler. Store advances a
+tenant/adapter/kind cursor only in the same transaction as canonical
+bridge-origin changes and outbox records; invalid pages park bounded conflict
+metadata and leave the cursor unchanged.
+
+Alternatives: accept a caller cursor (rejected: it could skip or cross tenant
+history), write provider payloads into a new CRM table (rejected: Hydra CDM is
+canonical), or add a background scheduler (deferred: it would introduce an
+unvalidated worker lifecycle and autonomy policy).
+
+Consequences: manual incremental synchronization is locally executable when a
+configured adapter advertises the capability. Full relist, scheduling,
+synthesis, conformance, canary, and promotion remain unavailable. EP-010
+production readiness is unchanged and remains partial.
+
+### ADR-0046 Read-only governed bridge conformance
+
+Context: EP-035 provides a governed manual synchronization path, while the
+existing A2A catalog still listed `bridge-conformance` without a typed runtime.
+Conformance must inspect a configured adapter without creating a second bridge
+abstraction or turning an audit read into an implicit CRM mutation.
+
+Decision: implement `bridge-conformance` as an authenticated A2A workflow that
+requires `hydra.bridges.read`, resolves the tenant-scoped active adapter and
+its persisted digest/grant/configuration through Store, and invokes only the
+bounded read-side BridgeHost/WIT exports. Return digest, descriptor metadata,
+counts, fuel, and a deterministic report; never return raw records, secrets,
+provider bodies, or mutation results. A2A task state and idempotency remain the
+only durable workflow records; no CRM event or outbox row is created.
+
+Alternatives: expose component paths or grants from Nexus (rejected: caller
+authority and sandbox escape risk); reuse synchronization (rejected: it writes
+canonical CRM state); or leave the catalog entry advertised as unavailable
+(rejected: capability truth requires the configured runtime to be executable).
+
+Consequences: configured adapters can be validated through the existing
+authenticated A2A seam, while missing/inactive/digest-invalid/malformed or
+cross-tenant requests fail closed. Activation, synchronization, canary,
+promotion, generated code, and EP-010 production readiness remain separate
+gates. No production deployment occurred.
+
+### ADR-0047 Governed bounded full-relist fallback
+
+Context: the normative WIT bridge contract states that an adapter without
+`incremental-sync` falls back to full-relist diffing, but EP-035's handler
+rejected those adapters and Store only applied incremental pages. Leaving the
+fallback unavailable made descriptor capability truth and runtime behavior
+diverge.
+
+Decision: extend the existing manually invoked `hydra.bridges.sync` handler to
+select incremental or full-relist mode from the persisted descriptor. BridgeHost
+follows only bounded WIT `list` pages and rejects repeated cursors, duplicate
+identities, invalid records, and fixed page/record/byte overages. Store applies
+the complete validated snapshot in one tenant-scoped transaction, avoids
+version churn for unchanged active rows, revives matching tombstones, and
+soft-deletes only missing active bridge-origin rows. Receipts contain strategy,
+counts, page count, and resource metadata, never raw records.
+
+Alternatives: keep rejecting non-incremental adapters (rejected: violates the
+WIT contract); apply pages independently (rejected: partial snapshots could
+soft-delete valid records); add a scheduler (deferred: worker lifecycle and
+autonomy policy are not yet validated).
+
+Consequences: manual full-relist synchronization is now code-owned and locally
+verified without a migration or new CRM abstraction. The capability remains
+Governor-gated and tenant-scoped. Scheduling, mapping activation, canary,
+promotion, staging, and EP-010 production readiness remain separate gates; no
+production deployment occurred.
+
+### ADR-0048 Hermetic real-child smoke database
+
+Context: the real Kernel smoke test previously forwarded the root
+`DATABASE_URL`, so its health/readiness result depended on hidden root-schema
+migration state. The existing Store `TestDb` already creates a unique schema
+and applies the embedded migrations, but SQLx 0.8.6's `PgConnectOptions::to_url_lossy`
+does not serialize startup `options`.
+
+Decision: expose `TestDb::scoped_database_url()` as a test-only child-process
+boundary. It validates the caller URL, appends a percent-encoded Postgres
+`options=-c search_path=<unique_schema>,public` parameter, and never logs the
+result. The smoke harness owns one outcome-safe lifecycle: create/migrate the
+schema, start the real Kernel child, preserve the existing endpoint assertions,
+stop the child, and attempt schema cleanup even when setup or assertions fail.
+
+Alternatives: pre-migrate the root database (rejected: hidden shared state),
+change health/readiness or disable the rate limiter (rejected: weakens the
+production path), or add a URL dependency solely for the test helper
+(rejected: the bounded encoded query is sufficient and introduces no new
+crate).
+
+Consequences: the smoke test passed twice against a fresh empty loopback
+database, with no root migrations applied manually; the disposable cluster
+was stopped afterward. This proves local hermeticity only and does not satisfy
+EP-010 staging, recovery, soak, or human-readiness evidence.
+
+### ADR-0049 Owner-controlled governed bridge scheduling
+
+Context: EP-037 makes bounded full-relist synchronization executable through
+the existing governed `hydra.bridges.sync` command, but production operations
+still need a durable cadence without adding a second CRM mutation path.
+
+Decision: add an additive tenant-scoped schedule table with bounded interval
+and page limits, soft-disable operations, expiring `SKIP LOCKED` leases, and a
+deterministic slot idempotency key. An explicitly enabled, supervised Kernel
+worker calls a fixed Fabric internal proposal method that uses actor
+`hydra-scheduler`, origin `hydra.scheduler`, and the existing Governor,
+Executor, audit, and outbox path. Owner mutations remain local and require
+`HYDRA_ADMIN_CONFIRM=I_UNDERSTAND`; scheduling is disabled by default.
+
+Alternatives: call BridgeHost from a timer (rejected: bypasses envelopes and
+Governor), expose a generic scheduled command endpoint (rejected: adds caller
+authority and a second mutation surface), or retry failed provider work in the
+worker (rejected: approval and retry semantics belong to the existing governed
+execution path).
+
+Consequences: schedule claims are replica-safe and stale leases are
+reclaimable; an equivalent slot retry returns its existing envelope and a
+conflicting reuse fails deterministically. Local disposable tests prove the
+claim-to-envelope path. EP-010 staging, multi-replica, provider, recovery,
+soak, and human sign-off evidence remains outstanding; no production
+deployment occurred.
+
+### ADR-0050 Scheduler concurrency evidence and bounded metrics
+
+Context: EP-039 provides a durable `SKIP LOCKED` scheduler lease, but its
+existing local evidence did not exercise two worker-level polls or a proposal
+created before lease completion. The scheduler is a library component while
+the historical metrics module was binary-private.
+
+Decision: share the existing dependency-free Kernel metrics registry with the
+library scheduler, record only fixed scheduler outcome labels, and add
+disposable tests for two-worker exclusivity, interrupted-proposal replay, and
+stale lease completion. Correct the validation command to target the library
+metrics tests so a binary filter cannot silently discover zero tests.
+
+Alternatives: add a durable metrics store (rejected: external operational
+authority), put tenant IDs in labels (rejected: cardinality and disclosure),
+or expose a second library registry (rejected: `/metrics` would omit worker
+outcomes).
+
+Consequences: local diagnostics now show scheduler stages and the worker-level
+lease/idempotency contract is executable. Metrics reset on restart and remain
+non-authoritative; EP-010 multi-replica staging, live monitoring, recovery,
+soak, and human sign-off evidence remain open.
+
+### ADR-0051 Truthful production-readiness evidence parsing
+
+Context: the EP-010 readiness script already required recent PASS rows for
+D1-D5, but its launch-table check only required non-empty matching text. A
+ledger with PENDING or BLOCKED launch results could therefore become
+false-green once the drill rows existed.
+
+Decision: use one dependency-free POSIX-shell evidence library for exact drill
+and launch-row parsing. Require explicit PASS status, named owner/operator,
+non-placeholder evidence, exactly one row per required check, and non-future
+evidence no older than 30 UTC days. Keep the checked-in ledger pending and add
+fixture tests for both valid and invalid evidence.
+
+Alternatives: retain the loose grep (rejected: false-green), accept any
+status with a date (rejected: status is the gate), or add a runtime/database
+evidence store (rejected: this is an operator-owned release ledger and no
+staging authority exists in the repository).
+
+Consequences: the local production-readiness command is stricter and cannot
+claim launch readiness from placeholder rows. EP-010 remains partial until
+real staging drills, reviews, soak, and human sign-off are performed. No
+staging or production action occurred.
+
+### ADR-0052 Keep Kernel metrics internal to the ingress topology
+
+Context: EP-027/031/040 added a bounded process-local `/metrics` endpoint and
+an internal Prometheus profile. The reference Caddyfile used a catch-all
+`reverse_proxy kernel:8080`, which also forwarded `/metrics` from the public
+HTTPS listener even though Prometheus already had a direct internal target.
+
+Decision: add a named `/metrics*` matcher and dedicated `404` Caddy handle
+before the catch-all proxy. Keep Kernel's direct route and Prometheus's
+`ingress-internal` scrape unchanged, and enforce the structure with a static
+policy plus negative fixture tests.
+
+Alternatives: expose metrics through public auth (rejected: no requirement
+for public metrics and it expands the trust boundary), remove the metrics
+route (rejected: breaks internal observability), or rely on network placement
+alone (rejected: Caddy is intentionally public and the route was reachable).
+
+Consequences: public `/metrics*` requests fail closed without operational
+disclosure, while internal Prometheus retains its scrape path. Local policy
+validation does not claim staged Caddy startup, live monitoring, or human
+observability review; EP-010 remains partial.
+
+### ADR-0053 Make public smoke validation respect internal metrics
+
+Context: EP-042 correctly denied `/metrics*` at Caddy, but the public branch of
+`scripts/smoke-test.sh` still requested `$HYDRA_SMOKE_URL/metrics`. A real
+ingress smoke would therefore fail for the correct security behavior.
+
+Decision: retain `HYDRA_SMOKE_URL` for public health/readiness, skip public
+metrics explicitly, and add optional `HYDRA_SMOKE_INTERNAL_METRICS_URL` for a
+separately reachable internal metrics endpoint. Reject equal URLs and keep
+the direct local Kernel smoke metrics assertions unchanged.
+
+Alternatives: reopen public metrics (rejected: weakens EP-042), remove all
+metrics smoke coverage (rejected: loses the internal contract), or infer an
+internal route from the public URL (rejected: unsafe and environment-specific).
+
+Consequences: public smoke validation no longer conflicts with the ingress
+security boundary. Operators must provide an approved internal URL to validate
+metrics in an external smoke; no staging or production evidence is implied.
+
+### ADR-0055 Wire configured bridge egress through the explicit proxy
+
+Context: EP-022 defined and tested `ReqwestEgressClient::new_with_proxy`, but
+the real Kernel `build_bridge_lifecycle` path still injected
+`DenyEgressClient`. A configured adapter could therefore be reported active
+while every granted HTTP call was denied.
+
+Decision: construct the existing `ReqwestEgressClient` from the validated
+`LlmRuntimeConfig.egress_proxy_url` at the configured lifecycle boundary. If
+construction fails, return an unavailable runtime and register no lifecycle
+handlers. Keep `DenyEgressClient` only for explicit disabled/test helpers.
+
+Alternatives: leave the deny client and document adapter HTTP as unavailable
+(rejected: it contradicts configured lifecycle availability), add a second
+HTTP abstraction (rejected: duplicates the tested BridgeHost seam), or permit
+ambient proxy discovery (rejected: weakens the explicit egress boundary).
+
+Consequences: configured adapter HTTP now follows the same explicit proxy
+contract as LLM and OIDC clients. Local bridge/runtime tests prove the wiring
+and malformed construction failure; staging ACL, DNS/TLS, upstream reachability,
+and EP-010 readiness evidence remain operator-owned.
+
+### ADR-0056 Remediate event-listener unsoundness through the compatible lockfile
+
+Context: `cargo audit` reported RustSec `RUSTSEC-2026-0221` for the transitive
+`event-listener 5.4.1` dependency pulled through the vendored SQLx 0.8.6
+stack. RustSec identifies `5.4.2` as the patched compatible floor.
+
+Decision: update only the resolved lockfile entry to `event-listener 5.4.2`.
+Do not add a direct forcing dependency, change the vendored SQLx boundary, or
+add an advisory ignore. Verify the complete target graph and repository gates
+after the update.
+
+Alternatives: ignore the advisory (rejected: it is an unsoundness issue), add
+a direct dependency solely to force resolution (rejected: unnecessary public
+dependency surface), or replace/refresh SQLx (rejected: broad unrelated risk).
+
+Consequences: the unsound event-listener warning is removed while the existing
+SQLx, Store, and checked-query contracts remain unchanged. `fxhash` and
+`proc-macro-error2` remain documented unmaintained transitive warnings, and
+EP-010 still requires staging, recovery, operational, and human evidence.
+
+### ADR-0057 Add explicit validated encrypted-vault recovery commands
+
+Context: Hydra's age-encrypted vault already supported bounded documents,
+atomic save, load, and owner key rotation, but deployment and package
+contracts had no executable backup/restore path. Treating a raw file copy as
+recovery would not validate the key or provide a safe restore boundary.
+
+Decision: add `hydra-vault backup <destination>` and
+`hydra-vault restore <source>`. Both commands validate the source artifact
+with `HYDRA_VAULT_KEY` and copy ciphertext through the existing atomic file
+boundary. Backup refuses an existing destination; restore requires
+`HYDRA_VAULT_RESTORE_CONFIRM=restore` and may replace only the configured
+vault artifact. Neither command prints plaintext, accepts keys as arguments,
+touches CRM/Postgres/NATS, or runs during Kernel startup.
+
+Alternatives: decrypt/re-encrypt during copy (rejected: increases plaintext
+exposure and changes the owner artifact), expose an HTTP recovery endpoint
+(rejected: unnecessary authority surface), or schedule automatic vault
+backup/restore in Compose (rejected: owner-key custody and off-box policy are
+not selected).
+
+Consequences: local recovery mechanics and binary-level tests are executable,
+while owner-key custody, off-box storage, capacity/retention, JetStream
+snapshots, staged restore timing, and EP-010 human evidence remain open.
+
+### ADR-0058 Make the Wasmtime feature boundary explicit
+
+Context: `cargo audit` reported the unmaintained `fxhash` package through
+Wasmtime's optional `profiling` default feature. Hydra uses the async
+Component Model, Cranelift, runtime, standard-library, and WASI paths for its
+checked WIT adapter ABI, but it does not use Wasmtime profiling or coredump
+support.
+
+Decision: keep Wasmtime and Wasmtime-WASI pinned at `36.0.13`, set the direct
+`wasmtime` dependency to `default-features = false`, and explicitly enable
+`async`, `component-model`, `cranelift`, `runtime`, and `std`. Add a mandatory
+locked all-target graph check that rejects `fxhash` and
+`fxprof-processed-profile`. Keep the pinned `age` library unchanged and
+document its unrelated upstream `proc-macro-error2` maintenance warning.
+
+Alternatives: retain Wasmtime defaults (rejected: carries an unused
+unmaintained profiling path), disable Cranelift or the Component Model
+(rejected: breaks the only permitted WIT adapter ABI), replace Wasmtime
+(rejected: broad sandbox/runtime risk), or replace age (rejected: changes the
+validated vault cryptographic boundary).
+
+Consequences: the resolved graph is smaller and the avoidable `fxhash`
+warning is removed without changing adapter behavior. The remaining age
+maintenance warning and all EP-010 staging, recovery, operational, and human
+evidence remain explicit residuals.
+
+### ADR-0059 Upgrade the age vault library to remove the retired macro edge
+
+Context: EP-047 removed Wasmtime's avoidable `fxhash` path, leaving
+`proc-macro-error2` as the only unmaintained package reported by `cargo audit`.
+The edge came from age `0.11.1` through `i18n-embed-fl 0.9.4`. Current age
+`0.12.1` resolves the localization macro path through `i18n-embed-fl 0.10.1`
+and `proc-macro-error3`.
+
+Decision: pin the workspace age dependency to `0.12.1` with its empty default
+feature set, refresh only the required lockfile graph, and add a mandatory
+locked graph check rejecting age `0.11`, `i18n-embed-fl 0.9`, or
+`proc-macro-error2`. Preserve the existing age artifact, named-secret JSON,
+passphrase, rotation, backup, restore, and owner-output contracts.
+
+Alternatives: keep age `0.11.1` (rejected: retains the only unmaintained
+warning), replace age or custom-build cryptography (rejected: changes the
+validated vault security boundary), or add an audit ignore (rejected: hides a
+removable maintenance issue).
+
+Consequences: local audit now reports no RustSec advisories or unmaintained
+package warnings, while vault and CLI regression tests prove compatibility.
+Owner-key custody, off-box protection, staged recovery, and EP-010 human
+readiness evidence remain open.
+
+### ADR-0060 Bound local recovery artifacts with explicit retention and vault scheduling
+
+Context: EP-032 schedules validated Postgres archives into a local volume, and
+EP-046/048 provide a validated encrypted-vault artifact contract, but neither
+artifact class has a bounded scheduler/retention lifecycle. The repository has
+no supported async-nats snapshot/restore API and must not copy a live NATS data
+directory as if it were a valid recovery artifact.
+
+Decision: add a preview-first `backup-retention.sh` helper that only considers
+matching files in a configured directory and requires both
+`HYDRA_BACKUP_RETENTION_APPLY=1` and `HYDRA_BACKUP_RETENTION_CONFIRM=prune` to
+delete. Add a separate network-isolated `vault-backup` Compose profile that
+invokes the existing `hydra-vault backup` binary with a read-only active vault,
+operator-provided key, collision refusal, and captured child output. Keep
+off-box replication, key custody, legal retention, JetStream snapshots, and
+staging recovery as explicit operator/deployment work.
+
+Alternatives: silently prune by age (rejected: malformed configuration could
+destroy recovery artifacts), copy the live JetStream directory (rejected:
+unsupported and potentially inconsistent), or add a cloud SDK (rejected:
+invented credential/provider authority and new supply-chain scope).
+
+Consequences: local artifact growth and vault scheduling now have executable
+fail-closed boundaries, while local volumes are not treated as off-box backup,
+and EP-010 remains partial until staging, ownership, and recovery evidence are
+performed.
+
+### ADR-0061 Replay canonical events from the Postgres outbox after JetStream loss
+
+Context: The Postgres outbox is authoritative, but normal relay bookkeeping
+does not re-emit rows already marked published after a broker volume loss or
+stream replacement. The repository's async-nats boundary supports acknowledged
+publish and stable message IDs but does not provide a supported snapshot/restore
+operation for copying live JetStream files.
+
+Decision: add a confirmation-gated `hydra-kernel --replay-events` command that
+reads validated unparked outbox rows through Store-owned bounded SQL, publishes
+them in ascending outbox-ID order through the existing JetStream publisher, and
+preserves event IDs, subjects, payloads, and trace carriers. Require a
+non-negative cursor and a maximum batch of 1000; stop on the first failure and
+print only bounded counts/cursor metadata. Never mark rows published, create
+claims, mutate CRM state, or replay action envelopes.
+
+Alternatives: copy the NATS data directory (rejected: unsupported and
+potentially inconsistent), mark replayed rows published (rejected: recovery
+delivery is distinct from normal relay bookkeeping), or add an unbounded admin
+endpoint (rejected: excessive authority and duplicate-load risk).
+
+Consequences: an owner can resume bounded event delivery after broker loss and
+consumers can deduplicate by stable event ID. The local round trip is not
+staged broker-recovery evidence; off-box protection, snapshot/restore policy,
+and EP-010 human readiness gates remain open.
+
+### ADR-0062 Activation requires BridgeHost read-side conformance
+
+Context: The governed prebuilt `deploy_adapter` handler already verifies a
+digest-pinned component with `probe`, but a component could pass that narrow
+check and enter the tenant registry's `active` state without exercising its
+declared schema, list, or incremental-read contract.
+
+Decision: After probe and before the `activating -> active` transition, run the
+existing `BridgeLifecycle::conformance` boundary with the stored grant,
+configuration, and digest, a fixed limit of 25, and no caller-selected kind.
+On failure, persist a revision-checked `activating -> failed` transition and
+return the executor failure path. Keep active redeploy idempotence and leave
+generated code, autonomous canary, and promotion for a separate contract.
+
+Alternatives: retain probe-only activation (rejected: the read-side contract
+would remain unverified), invent a second canary abstraction (rejected: the
+existing BridgeHost conformance boundary already owns these checks), or run
+conformance after activation (rejected: an invalid adapter could be observed
+as active).
+
+Consequences: new prebuilt activations have a stronger local safety boundary
+and durable failure evidence without a migration or dependency. The gate is
+not staging/provider evidence and does not make EP-010 production-ready.
+
+### ADR-0063 Make local performance evidence a shared required gate
+
+Context: Hydra already had a release-only Governor p99 test, a named 10,000-
+record bridge conformance soak, and a TOKENKILLER cache-hit audit, but
+`verify.sh` did not run the first two and only conditionally ran the cache
+audit. Nightly maintained a separate path, creating drift risk.
+
+Decision: add `scripts/test-performance.sh` that runs the three existing checks
+with strict success-marker validation, invoke it from `verify.sh` and nightly,
+and make the release policy require the shared wrapper. Preserve the existing
+5ms Governor threshold, 10k fixture, and `TK_HIT_RATIO_TARGET` default.
+
+Alternatives: leave performance only in nightly (rejected: local verify could
+pass after a regression), add a new benchmark dependency (rejected: existing
+tests already own the contracts), or synthesize staging evidence (rejected:
+local checks cannot prove staging behavior).
+
+Consequences: every local verification now exercises the important release,
+bridge-soak, and prompt-cache checks. The extra runtime is intentional; the
+result remains local evidence and does not close EP-010 staging or human gates.
+
+### ADR-0064 Use native disclosures for Shell no-JavaScript behavior
+
+Context: EP-005 M5 remained unexecuted. The Shell's New Deal and Kind
+Overrides controls used JavaScript `onclick` handlers and hidden CSS even
+though their underlying forms already had native POST actions.
+
+Decision: replace those show/hide controls with semantic `details`/`summary`
+disclosures, add a skip link and explicit navigation landmark, and enforce a
+dependency-free Rust contract test through `scripts/test-shell-accessibility.sh`.
+Keep the existing URLs, CSRF fields, htmx enhancement, and server-rendered
+forms unchanged.
+
+Alternatives: add a browser automation dependency (rejected: this is a local
+template contract and the repository forbids Node tooling), keep the
+JavaScript-only controls (rejected: violates SPEC-004 progressive enhancement),
+or claim a static contract is a staging accessibility review (rejected: it
+cannot prove screen-reader, contrast, or real browser behavior).
+
+Consequences: the two core disclosures are keyboard- and no-JavaScript-capable
+by construction, while EP-010 retains the separate browser and human review
+gates.
+
+### ADR-0065 Bind deployment helpers to immutable artifacts and pinned SSH trust
+
+Context: The release workflow captured the Buildx digest for attestation but
+staging received only a mutable tag. The staging helper accepted a discarded
+known-hosts file, while promotion skipped health validation if `curl` was
+missing and pushed a mutable `latest-prod` alias.
+
+Decision: pass the Buildx digest and owner-provided known-hosts record through
+the release workflow; require digest validation and strict SSH host checking;
+require both staging health and readiness plus Docker/curl for promotion; and
+push only the immutable `${TAG}-prod` image. A missing `PROMOTE=yes` remains a
+safe dry-run with a distinct marker.
+
+Alternatives: keep tag-only deployment (rejected: tags can move), retain
+`accept-new` with `/dev/null` (rejected: it does not authenticate the staging
+host), skip readiness or curl failures (rejected: fail-open release safety),
+or keep `latest-prod` (rejected: it weakens rollback and provenance).
+
+Consequences: local release tooling has a stronger, truthful safety boundary;
+actual tag runs still require owner-controlled digest, registry, SSH, staging,
+and human authorization evidence.
+
+### ADR-0066 Publish only immutable Hydra release tags
+
+Context: EP-054 bound staging and production promotion to a Buildx digest and
+removed `latest-prod`, but the tag-triggered release workflow still published
+`hydra/kernel:latest`. That contradicted the immutable image contract in
+deployment, rollback, and package documentation.
+
+Decision: remove only the Hydra `:latest` tag from the release Buildx step and
+add negative policy checks. Keep local Compose's `HYDRA_TAG` and
+`HYDRA_TAG=local` development behavior unchanged.
+
+Alternatives: retain `latest` for convenience (rejected: it is mutable and
+weakens rollback/provenance), change local Compose defaults (rejected: it is a
+separate development concern), or publish an alias from an operator job
+(rejected: that requires a separate reviewed release policy).
+
+Consequences: release consumers must select an explicit version or digest;
+local development remains compatible, and actual registry/tag-run evidence is
+still required before production readiness.
+
+### ADR-0067 Use async-NATS credentials files and required TLS outside dev
+
+Context: The Kernel and event-replay CLI used plain `async_nats::connect`,
+while the deployment contract allowed shared or remote NATS. The workspace
+already depended on async-nats 0.49.1 but had disabled its existing `nkeys`
+feature, so the verified credentials-file builder was unavailable.
+
+Decision: enable the existing `nkeys` feature, load credentials only from a
+mounted `NATS_CREDS_FILE`, reject credentials embedded in `NATS_URL`, and
+require both authentication and TLS in staging and production. Optional CA
+and mTLS files are supported through explicit paths. Development and loopback
+tests retain plain NATS defaults.
+
+Alternatives: keep an unauthenticated private broker (rejected: insufficient
+for shared/remote deployment), put user/password in `NATS_URL` (rejected:
+secret-bearing URLs leak through diagnostics), or add a new NATS client crate
+(rejected: the existing client already supplies the required API).
+
+Consequences: secure deployments need operator-mounted credentials and trust
+anchors, local Compose development remains compatible, and no broker,
+certificate, or secret material is created by Hydra.
+
+### ADR-0068 Hash local session bearer tokens at rest
+
+Context: the local session repository previously stored opaque bearer tokens
+in plaintext in `hydra_session`. A database read exposure would therefore
+immediately become session impersonation, even though the tokens are random.
+
+Decision: add an additive `token_hash` column and partial unique index. New
+sessions store only a lowercase SHA-256 digest; lookup, touch, and revoke
+derive the same digest before querying. Existing plaintext rows remain
+temporarily readable only through possession of the presented token and are
+upgraded atomically on lookup, with the plaintext column cleared. The
+session-token schema constraint permits exactly one credential representation
+during this compatibility window.
+
+Alternatives: keep plaintext storage (rejected: unnecessary bearer exposure),
+backfill all legacy tokens in SQL (rejected: requires retrieving bearer
+secrets or adding a database crypto extension), or break all existing sessions
+at migration time (rejected: avoidable compatibility and operator disruption).
+
+Consequences: new database exposures do not reveal active local sessions;
+legacy rows converge as they are used and expire naturally. A staging
+deployment should revoke or allow all legacy sessions to expire after the
+migration, and session-store recovery evidence remains an EP-010 operator
+gate.
+
+### ADR-0069 Keep the legacy HMAC token helper development-only and fail closed
+
+Context: `fabric::auth::jwt::TokenService` is retained for isolated local
+fixtures, while the HTTP Nexus boundary uses asymmetric OIDC validation. The
+helper previously verified only the HMAC bytes and deserialized claims, so a
+future caller could accidentally accept a non-HS256 header or malformed time
+claims.
+
+Decision: retain the helper for development/tests only, require the exact
+`HS256`/`JWT` header, require the `hydra` issuer and non-empty subject, reject
+expired or materially future-issued tokens, require expiration after issued-at,
+and cap verification input at 8 KiB. Production authentication remains on the
+OIDC resource-server path and does not use this helper.
+
+Alternatives: remove the helper immediately (rejected: existing deterministic
+fixtures still use it), or expand it into a second production token system
+(rejected: that would duplicate and weaken the asymmetric OIDC boundary).
+
+Consequences: local fixtures remain compatible while accidental legacy-helper
+reuse fails more safely. The helper is not a production identity provider, and
+its HMAC secret must never be treated as a production credential.
+
+### ADR-0071 Bound external business binding identifiers at every write and lookup boundary
+
+Context: The Hydra-owned external binding tuple was unique and lifecycle-safe,
+but its provider, external tenant, and external business text fields were
+unbounded and accepted control characters in Rust and Postgres. Signed OIDC
+claims reached binding lookup without the same explicit size contract.
+
+Decision: Define one Store-owned invariant: binding text is non-empty, free of
+control characters, and at most 512 Unicode scalar values. Enforce it when
+creating and resolving bindings, when validating the configured OIDC provider
+and external claims, and with an additive Postgres check constraint. Nil Hydra
+tenant IDs fail closed for binding listing. No external ID becomes tenant
+authority, and no delete or replacement path is introduced.
+
+Alternatives: rely on TEXT and token-size limits alone (rejected: those do not
+protect direct Store callers or log-safe identifiers), normalize/truncate IDs
+(rejected: it can collide distinct external principals), or add a second
+binding abstraction (rejected: Hydra's existing binding repository remains the
+canonical boundary).
+
+Consequences: malformed or oversized binding material fails before lookup or
+durable storage, while valid Unicode identifiers remain compatible. The
+additive migration requires existing binding rows to satisfy the same
+contract; no production database was touched during validation.
+
+### ADR-0070 Enforce RFC3339 timestamps at the canonical event boundary
+
+Context: The canonical event JSON Schema declared `date-time` fields, but the
+runtime `HydraEventEnvelope::validate()` path only checked that timestamps were
+non-empty text. Store outbox loading and durable Nexus consumers use runtime
+validation, so malformed timestamps could otherwise pass those paths.
+
+Decision: Reuse the workspace `time` crate with its existing RFC3339 formatter
+and enable its parsing feature for CDM. Validate `occurred_at` and optional
+`observed_at` with the same parser used by the schema contract, while retaining
+the existing bounded, control-free text checks. Do not change event names,
+schema versions, stored timestamp representation, or migration history.
+
+Alternatives: keep text-only validation (rejected: runtime and schema would
+disagree), add a new date-time dependency (rejected: the workspace already
+uses `time`), or parse timestamps in Store only (rejected: durable consumers
+and other CDM callers must share the canonical boundary).
+
+Consequences: malformed canonical timestamps fail closed before event-log,
+outbox, or consumer processing. The change is additive to the code contract,
+does not require a migration, and remains local evidence rather than staging
+consumer compatibility evidence.

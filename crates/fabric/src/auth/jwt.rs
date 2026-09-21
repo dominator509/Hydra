@@ -5,6 +5,9 @@ use time::{Duration, OffsetDateTime};
 
 type HmacSha256 = Hmac<Sha256>;
 
+const MAX_TOKEN_BYTES: usize = 8 * 1024;
+const MAX_CLOCK_SKEW_SECONDS: i64 = 30;
+
 /// Pre-defined token scopes used for capability-based access control.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TokenScope {
@@ -95,7 +98,8 @@ impl TokenClaims {
 
 /// A simple HMAC-SHA256 JWT implementation for development use.
 ///
-/// **Do not use with the production secret in test environments.**
+/// **Do not use for production authentication.** HTTP production paths use
+/// asymmetric OIDC validation in [`super::oidc`].
 #[derive(Clone)]
 pub struct TokenService {
     secret: Vec<u8>,
@@ -122,9 +126,21 @@ impl TokenService {
 
     /// Verify a compact JWT string and return the parsed claims.
     pub fn verify(&self, token: &str) -> Result<TokenClaims, String> {
+        if token.len() > MAX_TOKEN_BYTES {
+            return Err("token exceeds the development verification limit".into());
+        }
+
         let parts: Vec<&str> = token.split('.').collect();
         if parts.len() != 3 {
             return Err("token must have exactly 3 dot-separated segments".into());
+        }
+
+        let header_bytes =
+            decode_b64url(parts[0]).map_err(|e| format!("invalid header encoding: {e}"))?;
+        let header: JwtHeader =
+            serde_json::from_slice(&header_bytes).map_err(|_| "invalid JWT header".to_string())?;
+        if header.alg != "HS256" || header.typ != "JWT" {
+            return Err("unsupported JWT header".into());
         }
 
         let signing_input = format!("{}.{}", parts[0], parts[1]);
@@ -140,7 +156,25 @@ impl TokenService {
 
         let payload_bytes =
             decode_b64url(parts[1]).map_err(|e| format!("invalid payload encoding: {e}"))?;
-        serde_json::from_slice(&payload_bytes).map_err(|e| format!("invalid claims JSON: {e}"))
+        let claims: TokenClaims = serde_json::from_slice(&payload_bytes)
+            .map_err(|e| format!("invalid claims JSON: {e}"))?;
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        if claims.sub.trim().is_empty() {
+            return Err("JWT subject is required".into());
+        }
+        if claims.iss.as_deref() != Some("hydra") {
+            return Err("invalid JWT issuer".into());
+        }
+        if claims.exp <= now {
+            return Err("JWT is expired".into());
+        }
+        if claims.iat > now.saturating_add(MAX_CLOCK_SKEW_SECONDS) {
+            return Err("JWT issued-at is in the future".into());
+        }
+        if claims.exp <= claims.iat {
+            return Err("JWT expiration must follow issued-at".into());
+        }
+        Ok(claims)
     }
 
     fn sign_raw(&self, data: &[u8]) -> Result<Vec<u8>, String> {
@@ -149,6 +183,12 @@ impl TokenService {
         mac.update(data);
         Ok(mac.finalize().into_bytes().to_vec())
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct JwtHeader {
+    alg: String,
+    typ: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +324,73 @@ mod tests {
 
         let token = svc1.sign(&claims).expect("base64 roundtrip");
         assert!(svc2.verify(&token).is_err());
+    }
+
+    #[test]
+    fn verify_rejects_expired_claims() {
+        let svc = TokenService::new(b"test-secret".to_vec());
+        let claims = TokenClaims::new("service:test".into(), Uuid::nil(), &[], -1);
+        let token = svc.sign(&claims).expect("sign expired fixture");
+
+        assert!(matches!(
+            svc.verify(&token),
+            Err(error) if error == "JWT is expired"
+        ));
+    }
+
+    #[test]
+    fn verify_rejects_non_hs256_header_even_with_valid_signature() {
+        let svc = TokenService::new(b"test-secret".to_vec());
+        let claims = TokenClaims::new("service:test".into(), Uuid::nil(), &[], 1);
+        let token = svc.sign(&claims).expect("sign fixture");
+        let parts: Vec<&str> = token.split('.').collect();
+        let header = encode_b64url(br#"{"alg":"none","typ":"JWT"}"#);
+        let signing_input = format!("{header}.{}", parts[1]);
+        let signature = encode_b64url(&svc.sign_raw(signing_input.as_bytes()).expect("sign"));
+        let forged_header = format!("{signing_input}.{signature}");
+
+        assert!(matches!(
+            svc.verify(&forged_header),
+            Err(error) if error == "unsupported JWT header"
+        ));
+    }
+
+    #[test]
+    fn verify_rejects_missing_issuer() {
+        let svc = TokenService::new(b"test-secret".to_vec());
+        let mut claims = TokenClaims::new("service:test".into(), Uuid::nil(), &[], 1);
+        claims.iss = None;
+        let token = svc.sign(&claims).expect("sign issuer fixture");
+
+        assert!(matches!(
+            svc.verify(&token),
+            Err(error) if error == "invalid JWT issuer"
+        ));
+    }
+
+    #[test]
+    fn verify_rejects_future_issued_at() {
+        let svc = TokenService::new(b"test-secret".to_vec());
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let mut claims = TokenClaims::new("service:test".into(), Uuid::nil(), &[], 1);
+        claims.iat = now + MAX_CLOCK_SKEW_SECONDS + 1;
+        claims.exp = claims.iat + 3600;
+        let token = svc.sign(&claims).expect("sign future fixture");
+
+        assert!(matches!(
+            svc.verify(&token),
+            Err(error) if error == "JWT issued-at is in the future"
+        ));
+    }
+
+    #[test]
+    fn verify_rejects_oversized_input() {
+        let svc = TokenService::new(b"test-secret".to_vec());
+
+        assert!(matches!(
+            svc.verify(&"x".repeat(MAX_TOKEN_BYTES + 1)),
+            Err(error) if error == "token exceeds the development verification limit"
+        ));
     }
 
     #[test]

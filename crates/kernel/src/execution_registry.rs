@@ -266,18 +266,19 @@ impl ExecutionRegistry {
                 "at least one target is required".to_owned(),
             ));
         }
-        for target in &envelope.targets {
-            let entity = context.entities.get(envelope.tenant, *target).await?;
-            if !registered.descriptor.required_target_types.is_empty()
-                && !registered
+        if !registered.descriptor.required_target_types.is_empty() {
+            for target in &envelope.targets {
+                let entity = context.entities.get(envelope.tenant, *target).await?;
+                if !registered
                     .descriptor
                     .required_target_types
                     .contains(&entity.kind)
-            {
-                return Err(ExecutionRegistryError::InvalidTargetType {
-                    entity_id: entity.id,
-                    actual: entity.kind,
-                });
+                {
+                    return Err(ExecutionRegistryError::InvalidTargetType {
+                        entity_id: entity.id,
+                        actual: entity.kind,
+                    });
+                }
             }
         }
 

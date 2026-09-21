@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use askama::Template;
-use axum::extract::{Form, State};
+use axum::extract::{Extension, Form, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use serde::Deserialize;
@@ -49,15 +49,15 @@ pub struct SaveKindsForm {
 
 pub async fn autonomy_page(
     State(state): State<fabric::AppState>,
-    headers: HeaderMap,
+    Extension(auth): Extension<fabric::AuthCtx>,
 ) -> impl IntoResponse {
     let token = CsrfToken::generate();
-    let tenant = routes::tenant_or_default(&headers);
+    let tenant = auth.tenant;
 
     let cells = match state.autonomy.list(tenant).await {
         Ok(list) => list,
         Err(e) => {
-            let mut ctx = routes::PageCtx::new("Autonomy", "autonomy", &headers, &token);
+            let mut ctx = routes::PageCtx::new("Autonomy", "autonomy", Some(auth.tenant), &token);
             ctx = ctx.with_flash(FlashMessage::error(format!("Failed to load autonomy: {e}")));
             let template = AutonomyTemplate {
                 title: ctx.title,
@@ -126,7 +126,7 @@ pub async fn autonomy_page(
         });
     }
 
-    let ctx = routes::PageCtx::new("Autonomy", "autonomy", &headers, &token);
+    let ctx = routes::PageCtx::new("Autonomy", "autonomy", Some(auth.tenant), &token);
     let template = AutonomyTemplate {
         title: ctx.title,
         tenant: ctx.tenant,
@@ -151,18 +151,18 @@ pub async fn autonomy_page(
 
 pub async fn save_matrix(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     headers: HeaderMap,
     Form(form): Form<SaveMatrixForm>,
 ) -> impl IntoResponse {
     if routes::verify_csrf(&headers, &form._csrf_token).is_err() {
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
-    let tenant = routes::tenant_or_default(&headers);
-    let ctx = routes::auth_ctx_from_headers(&headers);
-    let actor = "dev-admin";
+    let tenant = auth.tenant;
+    let actor = auth.principal.as_str();
 
     let current = state.autonomy.list(tenant).await.unwrap_or_default();
-    match state.autonomy.replace(&ctx, tenant, actor, current).await {
+    match state.autonomy.replace(&auth, tenant, actor, current).await {
         Ok(_) => (StatusCode::OK, "Matrix saved").into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     }
@@ -170,18 +170,18 @@ pub async fn save_matrix(
 
 pub async fn save_kinds(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     headers: HeaderMap,
     Form(form): Form<SaveKindsForm>,
 ) -> impl IntoResponse {
     if routes::verify_csrf(&headers, &form._csrf_token).is_err() {
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
-    let tenant = routes::tenant_or_default(&headers);
-    let ctx = routes::auth_ctx_from_headers(&headers);
-    let actor = "dev-admin";
+    let tenant = auth.tenant;
+    let actor = auth.principal.as_str();
 
     let current = state.autonomy.list(tenant).await.unwrap_or_default();
-    match state.autonomy.replace(&ctx, tenant, actor, current).await {
+    match state.autonomy.replace(&auth, tenant, actor, current).await {
         Ok(_) => (StatusCode::OK, "Kind overrides saved").into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
     }

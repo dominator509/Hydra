@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use askama::Template;
-use axum::extract::{Form, Path, State};
+use axum::extract::{Extension, Form, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use governor::Reversal;
@@ -129,15 +129,16 @@ pub struct NewDealForm {
 #[allow(clippy::let_and_return)]
 pub async fn pipeline_board(
     State(state): State<fabric::AppState>,
-    headers: HeaderMap,
+    Extension(auth): Extension<fabric::AuthCtx>,
 ) -> impl IntoResponse {
     let token = CsrfToken::generate();
-    let tenant = routes::tenant_or_default(&headers);
+    let tenant = auth.tenant;
 
     let entities = match state.entities.list(tenant, "deal", None, 200).await {
         Ok(list) => list,
         Err(e) => {
-            let mut ctx = routes::PageCtx::new("Pipeline Board", "pipelines", &headers, &token);
+            let mut ctx =
+                routes::PageCtx::new("Pipeline Board", "pipelines", Some(auth.tenant), &token);
             ctx = ctx.with_flash(FlashMessage::error(format!("Failed to load deals: {e}")));
             let template = PipelineBoardTemplate {
                 title: ctx.title,
@@ -184,7 +185,7 @@ pub async fn pipeline_board(
         })
         .collect();
 
-    let ctx = routes::PageCtx::new("Pipeline Board", "pipelines", &headers, &token);
+    let ctx = routes::PageCtx::new("Pipeline Board", "pipelines", Some(auth.tenant), &token);
     let template = PipelineBoardTemplate {
         title: ctx.title,
         tenant: ctx.tenant,
@@ -208,11 +209,11 @@ pub async fn pipeline_board(
 
 pub async fn pipeline_record(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     Path(id): Path<Uuid>,
-    headers: HeaderMap,
 ) -> impl IntoResponse {
     let token = CsrfToken::generate();
-    let tenant = routes::tenant_or_default(&headers);
+    let tenant = auth.tenant;
 
     let entity = match state.entities.get(tenant, "deal", id).await {
         Ok(e) => e,
@@ -232,7 +233,7 @@ pub async fn pipeline_record(
     let ctx = routes::PageCtx::new(
         &format!("{} - {}", entity.kind, entity.id),
         "pipelines",
-        &headers,
+        Some(auth.tenant),
         &token,
     );
 
@@ -268,12 +269,13 @@ pub async fn pipeline_record(
 
 pub async fn pipeline_action(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     Path(id): Path<Uuid>,
     headers: HeaderMap,
     Form(form): Form<ActionForm>,
 ) -> impl IntoResponse {
     let token = CsrfToken::generate();
-    let tenant = routes::tenant_or_default(&headers);
+    let tenant = auth.tenant;
 
     let (result_state, csrf) = if let Err(flash) = routes::verify_csrf(&headers, &form._csrf_token)
     {
@@ -350,6 +352,7 @@ pub async fn pipeline_action(
 
 pub async fn pipeline_move(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     Path(id): Path<Uuid>,
     headers: HeaderMap,
     Form(form): Form<MoveForm>,
@@ -358,7 +361,7 @@ pub async fn pipeline_move(
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
 
-    let tenant = routes::tenant_or_default(&headers);
+    let tenant = auth.tenant;
 
     let entity = match state.entities.get(tenant, "deal", id).await {
         Ok(e) => e,
@@ -389,6 +392,7 @@ pub async fn pipeline_move(
 
 pub async fn pipeline_new_deal(
     State(state): State<fabric::AppState>,
+    Extension(auth): Extension<fabric::AuthCtx>,
     headers: HeaderMap,
     Form(form): Form<NewDealForm>,
 ) -> impl IntoResponse {
@@ -396,7 +400,7 @@ pub async fn pipeline_new_deal(
         return (StatusCode::FORBIDDEN, "CSRF mismatch").into_response();
     }
 
-    let tenant = routes::tenant_or_default(&headers);
+    let tenant = auth.tenant;
 
     let body = json!({
         "title": form.title,

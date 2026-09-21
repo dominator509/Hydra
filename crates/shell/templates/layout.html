@@ -68,6 +68,22 @@
             outline-offset: 2px;
         }
 
+        .skip-link {
+            position: absolute;
+            left: 8px;
+            top: -48px;
+            z-index: 300;
+            padding: 8px 12px;
+            color: var(--text-primary);
+            background: var(--card-bg);
+            border: 2px solid var(--accent);
+            border-radius: var(--radius);
+        }
+
+        .skip-link:focus {
+            top: 8px;
+        }
+
         .app-layout {
             display: flex;
             min-height: 100vh;
@@ -584,8 +600,9 @@
     {% block head %}{% endblock %}
 </head>
 <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <div class="app-layout">
-        <aside class="sidebar" role="navigation" aria-label="Main navigation">
+        <aside class="sidebar" aria-label="Application sidebar">
             <div class="sidebar-header">
                 <h1>HYDRA</h1>
                 <div class="tenant-label">{{ tenant }}</div>

@@ -1,11 +1,14 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub const HYDRA_EVENT_SPEC_VERSION: &str = "1.0";
 pub const HYDRA_EVENT_SCHEMA_VERSION: &str = "1.0";
 pub const HYDRA_EVENT_SOURCE: &str = "urn:hydra:crm";
+const EVENT_TEXT_PATTERN: &str = r"^[^\u0000-\u001F\u007F]+$";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HydraEventType {
@@ -29,9 +32,11 @@ pub enum HydraEventType {
     BridgeHealthChanged,
     #[serde(rename = "hydra.crm.sync.conflict.v1")]
     SyncConflict,
+    #[serde(rename = "hydra.crm.autonomy.freeze_changed.v1")]
+    AutonomyFreezeChanged,
 }
 
-pub const HYDRA_EVENT_TYPES_V1: [HydraEventType; 10] = [
+pub const HYDRA_EVENT_TYPES_V1: [HydraEventType; 11] = [
     HydraEventType::EntityCreated,
     HydraEventType::EntityUpdated,
     HydraEventType::EntityDeleted,
@@ -42,6 +47,7 @@ pub const HYDRA_EVENT_TYPES_V1: [HydraEventType; 10] = [
     HydraEventType::EnvelopeFailed,
     HydraEventType::BridgeHealthChanged,
     HydraEventType::SyncConflict,
+    HydraEventType::AutonomyFreezeChanged,
 ];
 
 impl HydraEventType {
@@ -57,6 +63,7 @@ impl HydraEventType {
             Self::EnvelopeFailed => "hydra.crm.envelope.failed.v1",
             Self::BridgeHealthChanged => "hydra.crm.bridge.health_changed.v1",
             Self::SyncConflict => "hydra.crm.sync.conflict.v1",
+            Self::AutonomyFreezeChanged => "hydra.crm.autonomy.freeze_changed.v1",
         }
     }
 
@@ -142,6 +149,11 @@ pub enum HydraEventPayload {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bridge_id: Option<String>,
     },
+    AutonomyFreeze {
+        status: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,24 +234,20 @@ impl HydraEventEnvelope {
         if self.subject != self.event_type.as_str() {
             return Err(EventContractError::InvalidField("subject"));
         }
-        validate_text("occurred_at", &self.occurred_at)?;
+        validate_timestamp("occurred_at", &self.occurred_at)?;
         validate_text("actor.actor_id", &self.actor.actor_id)?;
-        validate_optional_text("observed_at", self.observed_at.as_deref())?;
+        validate_optional_timestamp("observed_at", self.observed_at.as_deref())?;
         validate_optional_text("correlation_id", self.correlation_id.as_deref())?;
         validate_optional_text("causation_id", self.causation_id.as_deref())?;
         if self.external_binding_id.is_some_and(|id| id.is_nil()) {
             return Err(EventContractError::InvalidField("external_binding_id"));
         }
 
-        if self.event_type.is_entity() {
-            let Some(entity) = &self.entity else {
-                return Err(EventContractError::MissingReference("entity"));
-            };
-            if entity.entity_id.is_nil() {
-                return Err(EventContractError::InvalidField("entity.entity_id"));
-            }
-            validate_text("entity.kind", &entity.kind)?;
-            validate_text("entity.origin", &entity.origin)?;
+        if self.event_type.is_entity() && self.entity.is_none() {
+            return Err(EventContractError::MissingReference("entity"));
+        }
+        if let Some(entity) = &self.entity {
+            validate_entity(entity)?;
         }
         if self.event_type.is_envelope()
             && self
@@ -251,6 +259,7 @@ impl HydraEventEnvelope {
         if !payload_matches_type(self.event_type, &self.payload) {
             return Err(EventContractError::TypePayloadMismatch);
         }
+        validate_payload(&self.payload)?;
 
         let serialized = serde_json::to_value(self)
             .map_err(|error| EventContractError::Serialization(error.to_string()))?;
@@ -291,12 +300,82 @@ fn payload_matches_type(event_type: HydraEventType, payload: &HydraEventPayload)
         }
         (HydraEventType::BridgeHealthChanged, HydraEventPayload::BridgeHealth { .. }) => true,
         (HydraEventType::SyncConflict, HydraEventPayload::SyncConflict { .. }) => true,
+        (
+            HydraEventType::AutonomyFreezeChanged,
+            HydraEventPayload::AutonomyFreeze { status, .. },
+        ) => matches!(status.as_str(), "active" | "frozen"),
         _ => false,
     }
 }
 
+fn validate_entity(entity: &EventEntityRef) -> Result<(), EventContractError> {
+    if entity.entity_id.is_nil() {
+        return Err(EventContractError::InvalidField("entity.entity_id"));
+    }
+    validate_text("entity.kind", &entity.kind)?;
+    validate_text("entity.origin", &entity.origin)?;
+    validate_optional_text("entity.origin_ref", entity.origin_ref.as_deref())?;
+    Ok(())
+}
+
+fn validate_payload(payload: &HydraEventPayload) -> Result<(), EventContractError> {
+    match payload {
+        HydraEventPayload::EntityChange { operation, version } => {
+            validate_text("payload.operation", operation)?;
+            if *version == 0 {
+                return Err(EventContractError::InvalidField("payload.version"));
+            }
+        }
+        HydraEventPayload::EnvelopeTransition {
+            from_state,
+            to_state,
+            capability,
+            outcome,
+        } => {
+            validate_optional_text("payload.from_state", from_state.as_deref())?;
+            validate_text("payload.to_state", to_state)?;
+            validate_optional_text("payload.capability", capability.as_deref())?;
+            validate_optional_text("payload.outcome", outcome.as_deref())?;
+        }
+        HydraEventPayload::BridgeHealth { bridge_id, status } => {
+            validate_text("payload.bridge_id", bridge_id)?;
+            validate_text("payload.status", status)?;
+        }
+        HydraEventPayload::SyncConflict {
+            conflict_kind,
+            bridge_id,
+        } => {
+            validate_text("payload.conflict_kind", conflict_kind)?;
+            validate_optional_text("payload.bridge_id", bridge_id.as_deref())?;
+        }
+        HydraEventPayload::AutonomyFreeze { status, reason } => {
+            validate_text("payload.status", status)?;
+            validate_optional_text_with_max("payload.reason", reason.as_deref(), 500)?;
+        }
+    }
+    Ok(())
+}
+
 fn validate_text(field: &'static str, value: &str) -> Result<(), EventContractError> {
-    if value.trim().is_empty() || value.len() > 512 {
+    validate_text_with_max(field, value, 512)
+}
+
+fn validate_timestamp(field: &'static str, value: &str) -> Result<(), EventContractError> {
+    validate_text(field, value)?;
+    OffsetDateTime::parse(value, &Rfc3339)
+        .map(|_| ())
+        .map_err(|_| EventContractError::InvalidField(field))
+}
+
+fn validate_text_with_max(
+    field: &'static str,
+    value: &str,
+    max_length: usize,
+) -> Result<(), EventContractError> {
+    if value.trim().is_empty()
+        || value.chars().count() > max_length
+        || value.chars().any(char::is_control)
+    {
         return Err(EventContractError::InvalidField(field));
     }
     Ok(())
@@ -308,6 +387,27 @@ fn validate_optional_text(
 ) -> Result<(), EventContractError> {
     if let Some(value) = value {
         validate_text(field, value)?;
+    }
+    Ok(())
+}
+
+fn validate_optional_text_with_max(
+    field: &'static str,
+    value: Option<&str>,
+    max_length: usize,
+) -> Result<(), EventContractError> {
+    if let Some(value) = value {
+        validate_text_with_max(field, value, max_length)?;
+    }
+    Ok(())
+}
+
+fn validate_optional_timestamp(
+    field: &'static str,
+    value: Option<&str>,
+) -> Result<(), EventContractError> {
+    if let Some(value) = value {
+        validate_timestamp(field, value)?;
     }
     Ok(())
 }
@@ -346,11 +446,108 @@ fn forbidden_key(value: &Value) -> Option<String> {
     }
 }
 
+fn text_schema(max_length: usize) -> Value {
+    json!({
+        "type": "string",
+        "minLength": 1,
+        "maxLength": max_length,
+        "pattern": EVENT_TEXT_PATTERN
+    })
+}
+
+fn date_time_schema() -> Value {
+    let mut schema = text_schema(512);
+    schema["format"] = Value::String("date-time".to_owned());
+    schema
+}
+
 pub fn hydra_event_v1_schema() -> Value {
     let event_types = HYDRA_EVENT_TYPES_V1
         .iter()
         .map(|event_type| event_type.as_str())
         .collect::<Vec<_>>();
+    let uuid = json!({ "type": "string", "format": "uuid" });
+    let date_time = date_time_schema();
+    let text = text_schema(512);
+    let reason = text_schema(500);
+    let actor = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actor_id", "actor_type"],
+        "properties": {
+            "actor_id": text.clone(),
+            "actor_type": {
+                "enum": [
+                    "human", "nexus_service", "nexus_agent", "hydra_internal_agent",
+                    "local_hydra_user", "hydra_system", "bridge"
+                ]
+            }
+        }
+    });
+    let entity = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entity_id", "kind", "origin"],
+        "properties": {
+            "entity_id": uuid.clone(),
+            "kind": text.clone(),
+            "origin": text.clone(),
+            "origin_ref": text.clone()
+        }
+    });
+    let entity_change = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["payload_type", "operation", "version"],
+        "properties": {
+            "payload_type": { "const": "entity_change" },
+            "operation": { "enum": ["created", "updated", "deleted"] },
+            "version": { "type": "integer", "minimum": 1 }
+        }
+    });
+    let envelope_transition = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["payload_type", "to_state"],
+        "properties": {
+            "payload_type": { "const": "envelope_transition" },
+            "from_state": text.clone(),
+            "to_state": text.clone(),
+            "capability": text.clone(),
+            "outcome": text.clone()
+        }
+    });
+    let bridge_health = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["payload_type", "bridge_id", "status"],
+        "properties": {
+            "payload_type": { "const": "bridge_health" },
+            "bridge_id": text.clone(),
+            "status": text.clone()
+        }
+    });
+    let sync_conflict = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["payload_type", "conflict_kind"],
+        "properties": {
+            "payload_type": { "const": "sync_conflict" },
+            "conflict_kind": text.clone(),
+            "bridge_id": text.clone()
+        }
+    });
+    let autonomy_freeze = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["payload_type", "status"],
+        "properties": {
+            "payload_type": { "const": "autonomy_freeze" },
+            "status": { "enum": ["active", "frozen"] },
+            "reason": reason
+        }
+    });
+
     json!({
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "Hydra canonical CRM event v1",
@@ -361,86 +558,29 @@ pub fn hydra_event_v1_schema() -> Value {
             "subject", "occurred_at", "hydra_tenant_id", "actor", "data_class", "payload"
         ],
         "properties": {
-            "event_id": { "type": "string", "format": "uuid" },
+            "event_id": uuid.clone(),
             "spec_version": { "const": HYDRA_EVENT_SPEC_VERSION },
-            "event_type": { "enum": event_types },
+            "event_type": { "enum": event_types.clone() },
             "schema_version": { "const": HYDRA_EVENT_SCHEMA_VERSION },
             "source": { "const": HYDRA_EVENT_SOURCE },
             "subject": { "enum": event_types },
-            "occurred_at": { "type": "string", "format": "date-time" },
-            "observed_at": { "type": "string", "format": "date-time" },
-            "hydra_tenant_id": { "type": "string", "format": "uuid" },
-            "external_binding_id": { "type": "string", "format": "uuid" },
-            "actor": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["actor_id", "actor_type"],
-                "properties": {
-                    "actor_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-                    "actor_type": {
-                        "enum": ["human", "nexus_service", "nexus_agent", "hydra_internal_agent", "local_hydra_user", "hydra_system", "bridge"]
-                    }
-                }
-            },
-            "correlation_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-            "causation_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-            "envelope_id": { "type": "string", "format": "uuid" },
-            "entity": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["entity_id", "kind", "origin"],
-                "properties": {
-                    "entity_id": { "type": "string", "format": "uuid" },
-                    "kind": { "type": "string", "minLength": 1, "maxLength": 512 },
-                    "origin": { "type": "string", "minLength": 1, "maxLength": 512 },
-                    "origin_ref": { "type": "string", "minLength": 1, "maxLength": 512 }
-                }
-            },
+            "occurred_at": date_time.clone(),
+            "observed_at": date_time,
+            "hydra_tenant_id": uuid.clone(),
+            "external_binding_id": uuid,
+            "actor": actor,
+            "correlation_id": text.clone(),
+            "causation_id": text,
+            "envelope_id": json!({ "type": "string", "format": "uuid" }),
+            "entity": entity,
             "data_class": { "enum": ["public", "internal", "private", "restricted"] },
             "payload": {
                 "oneOf": [
-                    {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": ["payload_type", "operation", "version"],
-                        "properties": {
-                            "payload_type": { "const": "entity_change" },
-                            "operation": { "enum": ["created", "updated", "deleted"] },
-                            "version": { "type": "integer", "minimum": 1 }
-                        }
-                    },
-                    {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": ["payload_type", "to_state"],
-                        "properties": {
-                            "payload_type": { "const": "envelope_transition" },
-                            "from_state": { "type": "string", "minLength": 1 },
-                            "to_state": { "type": "string", "minLength": 1 },
-                            "capability": { "type": "string", "minLength": 1 },
-                            "outcome": { "type": "string", "minLength": 1 }
-                        }
-                    },
-                    {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": ["payload_type", "bridge_id", "status"],
-                        "properties": {
-                            "payload_type": { "const": "bridge_health" },
-                            "bridge_id": { "type": "string", "minLength": 1 },
-                            "status": { "type": "string", "minLength": 1 }
-                        }
-                    },
-                    {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": ["payload_type", "conflict_kind"],
-                        "properties": {
-                            "payload_type": { "const": "sync_conflict" },
-                            "conflict_kind": { "type": "string", "minLength": 1 },
-                            "bridge_id": { "type": "string", "minLength": 1 }
-                        }
-                    }
+                    entity_change,
+                    envelope_transition,
+                    bridge_health,
+                    sync_conflict,
+                    autonomy_freeze
                 ]
             }
         }

@@ -21,6 +21,8 @@ const ADAPTER: &str = "memcrm";
 const KIND: &str = "party";
 const LIST_LIMIT: u32 = 17;
 const DEFAULT_FUEL: u64 = 20_000_000;
+// The 10k seed rebuilds a BTreeMap and change log during probe.
+const SOAK_FUEL: u64 = 2_000_000_000;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -704,7 +706,7 @@ async fn c8_grant_denial_graceful() -> Result<()> {
 async fn c9_soak_10k() -> Result<()> {
     let mut cx = Ctx::new_with_grant(
         seed_config(10_000),
-        grant(vec!["https://allowed.example".into()], 20_000_000),
+        grant(vec!["https://allowed.example".into()], SOAK_FUEL),
     )
     .await?;
     let records = cx.list_all(200).await?;

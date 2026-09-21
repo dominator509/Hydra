@@ -13,6 +13,46 @@ fail() {
   exit 1
 }
 
+require_test_database() {
+  test_database_url="${HYDRA_TEST_DATABASE_URL:-}"
+  [ -n "$test_database_url" ] || fail "database - HYDRA_TEST_DATABASE_URL must be explicitly set to a disposable loopback Postgres URL"
+  case "$test_database_url" in
+    postgres://*@127.0.0.1:*/*|postgres://*@localhost:*/*|postgresql://*@127.0.0.1:*/*|postgresql://*@localhost:*/*)
+      ;;
+    *)
+      fail "database - HYDRA_TEST_DATABASE_URL must target a loopback Postgres host"
+      ;;
+  esac
+  # Prevent any inherited DATABASE_URL from changing the verifier's target.
+  DATABASE_URL="$test_database_url"
+  export DATABASE_URL HYDRA_TEST_DATABASE_URL
+}
+
+require_test_nats() {
+  test_nats_url="${NATS_URL:-}"
+  [ -n "$test_nats_url" ] || fail "NATS - NATS_URL must be explicitly set to a disposable loopback broker URL"
+  case "$test_nats_url" in
+    *[[:space:]]*|*@*)
+      fail "NATS - NATS_URL must not contain whitespace or embedded credentials"
+      ;;
+  esac
+
+  old_ifs=$IFS
+  IFS=,
+  set -- $test_nats_url
+  IFS=$old_ifs
+  [ "$#" -gt 0 ] || fail "NATS - NATS_URL must contain at least one endpoint"
+  for endpoint do
+    case "$endpoint" in
+      "nats://127.0.0.1:"*|"nats://localhost:"*|"nats://[::1]:"*|"tls://127.0.0.1:"*|"tls://localhost:"*|"tls://[::1]:"*)
+        ;;
+      *)
+        fail "NATS - NATS_URL endpoints must target loopback hosts"
+        ;;
+    esac
+  done
+}
+
 pass_gate() {
   echo "production-readiness:pass: $1"
 }
@@ -65,53 +105,29 @@ gate_security() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 5 — Drill evidence D1–D5 in OPERATIONS.md
+# Step 5 — Exact drill and launch evidence in the checked-in ledgers
 # ---------------------------------------------------------------------------
-gate_drills() {
-  OPS="OPERATIONS.md"
-  [ -f "$OPS" ] || fail "drills — $OPS not found"
-  NOW=$(date -u +%s)
-  for d in D1 D2 D3 D4 D5; do
-    if ROW="$(grep -E "^[|]" "$OPS" | grep -E "\|[[:space:]]*$d[[:space:]]*\|" | grep -E "PASS" | tail -1)"; then
-      :
-    else
-      ROW=""
-    fi
-    [ -n "$ROW" ] || fail "drill $d — no PASS row in $OPS"
-    if DATE="$(printf '%s\n' "$ROW" | grep -oE '20[0-9]{2}-[0-9]{2}-[0-9]{2}' | head -1)"; then
-      :
-    else
-      DATE=""
-    fi
-    [ -n "$DATE" ] || fail "drill $d — PASS row lacks ISO date in $OPS"
-    TS=$(date -u -d "$DATE" +%s 2>/dev/null) || fail "drill $d — cannot parse date '$DATE'"
-    AGE=$(( (NOW - TS) / 86400 ))
-    [ "$AGE" -le 30 ] || fail "drill $d — evidence is $AGE days old (>30, last PASS on $DATE)"
-  done
-  pass_gate "drills D1–D5"
-}
-
-# ---------------------------------------------------------------------------
-# Step 6 — Launch-gate rows in PRODUCTION_READINESS.md
-# ---------------------------------------------------------------------------
-gate_launch_table() {
-  PR="PRODUCTION_READINESS.md"
-  [ -f "$PR" ] || fail "launch-table — $PR not found"
-  for check in "production-readiness-check.sh" "Restore drill" "Rollback drill" "24h staging soak"; do
-    grep -F "$check" "$PR" | grep -vE '\|[[:space:]]*\|[[:space:]]*\|[[:space:]]*\|' >/dev/null \
-      || fail "launch-table — row '$check' is empty in $PR (all columns must be filled except Sign-off)"
-  done
-  pass_gate "launch-table"
+gate_evidence() {
+  [ -f scripts/readiness-evidence.sh ] || fail "evidence — scripts/readiness-evidence.sh not found"
+  # shellcheck disable=SC1091
+  . scripts/readiness-evidence.sh
+  if readiness_evidence_check OPERATIONS.md PRODUCTION_READINESS.md "$(date -u +%s)" 30; then
+    :
+  else
+    fail "$READINESS_EVIDENCE_ERROR"
+  fi
+  pass_gate "drills D1-D5 and launch-table"
 }
 
 # ---------------------------------------------------------------------------
 # Run all gates in order
 # ---------------------------------------------------------------------------
+require_test_database
+require_test_nats
 gate_verify
 gate_smoke
 gate_cache_audit
 gate_security
-gate_drills
-gate_launch_table
+gate_evidence
 
 echo "production-readiness:ok"

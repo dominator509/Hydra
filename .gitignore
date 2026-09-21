@@ -5,6 +5,8 @@
 /.env
 /.env.*
 !/.env.example
+/data/*.age
+/secrets/
 
 # Local tool state
 /.codex/

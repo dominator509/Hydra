@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE bridge_sync_schedule\n                SET lease_token = $3,\n                    lease_expires_at = $4,\n                    last_started_at = $1,\n                    last_error = NULL,\n                    revision = revision + 1,\n                    updated_at = $1\n                WHERE id = $2\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "26ef24dde0b76ebc6de9e941de129a57e6793133cf526e431f28805ef61e8d2f"
+}

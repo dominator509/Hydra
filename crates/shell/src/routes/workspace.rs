@@ -1,6 +1,7 @@
 use askama::Template;
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Redirect};
+use axum::extract::Extension;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 
 use crate::csrf::CsrfToken;
 use crate::flash::FlashMessage;
@@ -24,19 +25,15 @@ struct WorkspaceStats {
     agents_online: usize,
 }
 
-pub async fn workspace_home(headers: HeaderMap) -> impl IntoResponse {
-    if routes::session_tenant(&headers).is_none() {
-        return Redirect::to("/login").into_response();
-    }
-
+pub async fn workspace_home(Extension(ctx): Extension<fabric::AuthCtx>) -> impl IntoResponse {
     let token = CsrfToken::generate();
-    let ctx = routes::PageCtx::new("Workspace", "workspace", &headers, &token);
+    let page = routes::PageCtx::new("Workspace", "workspace", Some(ctx.tenant), &token);
     let template = WorkspaceTemplate {
-        title: ctx.title,
-        tenant: ctx.tenant,
-        current_page: ctx.current_page,
-        flash: ctx.flash,
-        csrf: ctx.csrf,
+        title: page.title,
+        tenant: page.tenant,
+        current_page: page.current_page,
+        flash: page.flash,
+        csrf: page.csrf,
         stats: WorkspaceStats {
             active_pipelines: 0,
             pending_approvals: 0,

@@ -51,6 +51,7 @@ fn event_contract_names_versions_and_subjects_are_stable() {
             "hydra.crm.envelope.failed.v1",
             "hydra.crm.bridge.health_changed.v1",
             "hydra.crm.sync.conflict.v1",
+            "hydra.crm.autonomy.freeze_changed.v1",
         ]
     );
     assert_eq!(HYDRA_EVENT_SPEC_VERSION, "1.0");
@@ -75,6 +76,84 @@ fn event_contract_rejects_type_payload_mismatch() {
         version: 1,
     };
     event.validate().expect("matching payload should validate");
+}
+
+#[test]
+fn event_contract_bounds_nested_text_and_rejects_control_characters() {
+    let mut entity: HydraEventEnvelope =
+        serde_json::from_str(ENTITY_CREATED).expect("fixture should deserialize");
+    entity
+        .entity
+        .as_mut()
+        .expect("fixture has entity")
+        .origin_ref = Some("x".repeat(513));
+    assert_eq!(
+        entity.validate(),
+        Err(EventContractError::InvalidField("entity.origin_ref"))
+    );
+
+    let mut envelope: HydraEventEnvelope =
+        serde_json::from_str(ENVELOPE_EXECUTED).expect("fixture should deserialize");
+    if let HydraEventPayload::EnvelopeTransition { outcome, .. } = &mut envelope.payload {
+        *outcome = Some("verified\nwith-control".to_owned());
+    } else {
+        panic!("fixture should contain an envelope transition");
+    }
+    assert_eq!(
+        envelope.validate(),
+        Err(EventContractError::InvalidField("payload.outcome"))
+    );
+}
+
+#[test]
+fn event_contract_rejects_zero_entity_version() {
+    let mut event: HydraEventEnvelope =
+        serde_json::from_str(ENTITY_CREATED).expect("fixture should deserialize");
+    event.payload = HydraEventPayload::EntityChange {
+        operation: "created".to_owned(),
+        version: 0,
+    };
+    assert_eq!(
+        event.validate(),
+        Err(EventContractError::InvalidField("payload.version"))
+    );
+}
+
+#[test]
+fn event_contract_requires_rfc3339_timestamps() {
+    let mut event: HydraEventEnvelope =
+        serde_json::from_str(ENTITY_CREATED).expect("fixture should deserialize");
+    event.occurred_at = "not-a-timestamp".to_owned();
+    assert_eq!(
+        event.validate(),
+        Err(EventContractError::InvalidField("occurred_at"))
+    );
+
+    event.occurred_at = "2026-08-11T12:00:00Z".to_owned();
+    event.observed_at = Some("also-not-a-timestamp".to_owned());
+    assert_eq!(
+        event.validate(),
+        Err(EventContractError::InvalidField("observed_at"))
+    );
+}
+
+#[test]
+fn event_schema_bounds_nested_text_and_rejects_control_characters() {
+    let schema = hydra_event_v1_schema();
+    let validator = JSONSchema::options()
+        .with_draft(Draft::Draft7)
+        .compile(&schema)
+        .expect("canonical event schema should compile");
+
+    let mut oversized: Value =
+        serde_json::from_str(ENTITY_CREATED).expect("fixture should deserialize");
+    oversized["entity"]["origin_ref"] = Value::String("x".repeat(513));
+    assert!(!validator.is_valid(&oversized));
+
+    let mut control_character: Value =
+        serde_json::from_str(ENVELOPE_EXECUTED).expect("fixture should deserialize");
+    control_character["payload"]["outcome"] = Value::String("verified\nwith-control".to_owned());
+    assert!(!validator.is_valid(&control_character));
 }
 
 #[test]

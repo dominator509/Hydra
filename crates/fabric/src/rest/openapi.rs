@@ -84,6 +84,12 @@ pub async fn openapi(State(state): State<AppState>) -> Json<Value> {
             "/v1/tk/ledger": {
                 "get": { "summary": "Read tenant-scoped TOKENKILLER ledger stats" }
             },
+            "/v1/tenant/export": {
+                "get": { "summary": "Export the authenticated tenant's canonical CRM data and safe event metadata" }
+            },
+            "/v1/tenant/retention-preview": {
+                "get": { "summary": "Preview non-destructive age-based retention candidates for the authenticated tenant" }
+            },
             "/v1/concierge/ping": {
                 "post": { "summary": "Smoke-test the TOKENKILLER call path with a concierge ping" }
             },
@@ -105,6 +111,13 @@ pub async fn openapi(State(state): State<AppState>) -> Json<Value> {
                     "summary": "Propose an idempotent governed canonical deal stage change",
                     "description": "Returns an ActionEnvelope receipt; never mutates a CRM entity directly.",
                     "security": [{ "nexusOidcBearer": ["hydra.crm.propose"] }]
+                }
+            },
+            "/v1/nexus/bridges/{id}/sync": {
+                "post": {
+                    "summary": "Propose one governed incremental bridge synchronization page",
+                    "description": "The adapter identity is path-bound; Hydra owns the tenant and cursor. Returns an ActionEnvelope receipt.",
+                    "security": [{ "nexusOidcBearer": ["hydra.bridges.admin"] }]
                 }
             },
             "/v1/nexus/envelopes/{id}/approval": {

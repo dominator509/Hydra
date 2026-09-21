@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM rate_limit_window\n            WHERE window_started_at <\n                now() - ($1::double precision * interval '1 second')\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2d9d9713093ac1a5ad6706df0cd7cd07f3432c56634c14fec3f0df83a6a36db5"
+}

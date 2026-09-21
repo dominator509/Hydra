@@ -7,11 +7,11 @@
     {% endmatch %}
     <div class="form-group">
         <label for="username">Username</label>
-        <input type="text" id="username" name="username" placeholder="any value (dev mode)">
+        <input type="text" id="username" name="username" placeholder="{% if development_mode %}any value (dev mode){% else %}Username{% endif %}">
     </div>
     <div class="form-group">
         <label for="password">Password</label>
-        <input type="password" id="password" name="password" placeholder="any value (dev mode)">
+        <input type="password" id="password" name="password" placeholder="{% if development_mode %}any value (dev mode){% else %}Password{% endif %}">
     </div>
-    <button type="submit">Dev Login</button>
+    <button type="submit">{% if development_mode %}Dev Login{% else %}Sign In{% endif %}</button>
 </form>

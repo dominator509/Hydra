@@ -12,66 +12,92 @@ const HEALTHZ_WAIT_INTERVAL: Duration = Duration::from_millis(100);
 
 #[tokio::test]
 async fn smoke_healthz() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = reserve_addr()?;
-    let bin = std::env::var("CARGO_BIN_EXE_hydra-kernel")?;
-    let mut child = Command::new(bin)
-        .env("HYDRA_BIND", addr.to_string())
-        .env(
-            "DATABASE_URL",
-            std::env::var("DATABASE_URL")
-                .unwrap_or_else(|_| "postgres://hydra:hydra@localhost:5432/hydra".to_owned()),
-        )
-        .env(
-            "NATS_URL",
-            std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_owned()),
-        )
-        .env("HYDRA_VAULT_KEY", "SET_LOCAL_DEV_VAULT_KEY")
-        .env("HYDRA_BASE_URL", "http://127.0.0.1:8080")
-        .env("HYDRA_ENV", "dev")
-        .env("TK_HIT_RATIO_TARGET", "0.97")
-        .env("TK_OUTPUT_BUDGET_BYTES", "16384")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    let db = store::TestDb::new().await?;
+    let result: Result<(), Box<dyn std::error::Error>> = async {
+        let database_url = db.scoped_database_url()?;
+        let addr = reserve_addr()?;
+        let bin = std::env::var("CARGO_BIN_EXE_hydra-kernel")?;
+        let mut child = Command::new(bin)
+            .env("HYDRA_BIND", addr.to_string())
+            .env("DATABASE_URL", database_url)
+            .env(
+                "NATS_URL",
+                std::env::var("NATS_URL").unwrap_or_else(|_| "nats://localhost:4222".to_owned()),
+            )
+            .env("HYDRA_VAULT_KEY", "SET_LOCAL_DEV_VAULT_KEY")
+            .env("HYDRA_BASE_URL", "http://127.0.0.1:8080")
+            .env("HYDRA_ENV", "dev")
+            .env("TK_HIT_RATIO_TARGET", "0.97")
+            .env("TK_OUTPUT_BUDGET_BYTES", "16384")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
 
-    let healthz = wait_for_endpoint(addr, "/healthz", &mut child).await;
-    let readyz = wait_for_endpoint(addr, "/readyz", &mut child).await;
-    let _ = shutdown_child(&mut child);
-    let healthz = healthz?;
-    let readyz = readyz?;
+        let result: Result<(), Box<dyn std::error::Error>> = async {
+            let healthz = wait_for_endpoint(addr, "/healthz", &mut child).await?;
+            let readyz = wait_for_endpoint(addr, "/readyz", &mut child).await?;
+            let readyz_details = wait_for_endpoint(addr, "/readyz/details", &mut child).await?;
 
-    if !healthz.contains("200 OK") {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("expected HTTP 200 from /healthz, got response: {healthz}"),
-        )
-        .into());
+            if !healthz.contains("200 OK") {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("expected HTTP 200 from /healthz, got response: {healthz}"),
+                )
+                .into());
+            }
+
+            if !healthz.contains("\r\n\r\nok") {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("expected body 'ok' from /healthz, got response: {healthz}"),
+                )
+                .into());
+            }
+
+            if !readyz.contains("200 OK") {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("expected HTTP 200 from /readyz, got response: {readyz}"),
+                )
+                .into());
+            }
+
+            if !readyz.contains("\r\n\r\nok") {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("expected body 'ok' from /readyz, got response: {readyz}"),
+                )
+                .into());
+            }
+
+            if !readyz_details.contains("200 OK")
+                || !readyz_details.contains("\"status\":\"ready\"")
+                || !readyz_details.contains("\"postgres\"")
+                || !readyz_details.contains("\"nats\"")
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "expected structured readiness details, got response: {readyz_details}"
+                    ),
+                )
+                .into());
+            }
+
+            Ok(())
+        }
+        .await;
+        let shutdown = shutdown_child(&mut child);
+
+        result?;
+        shutdown?;
+        Ok(())
     }
+    .await;
+    let cleanup = db.cleanup().await;
 
-    if !healthz.contains("\r\n\r\nok") {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("expected body 'ok' from /healthz, got response: {healthz}"),
-        )
-        .into());
-    }
-
-    if !readyz.contains("200 OK") {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("expected HTTP 200 from /readyz, got response: {readyz}"),
-        )
-        .into());
-    }
-
-    if !readyz.contains("\r\n\r\nok") {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("expected body 'ok' from /readyz, got response: {readyz}"),
-        )
-        .into());
-    }
-
+    result?;
+    cleanup?;
     Ok(())
 }
 

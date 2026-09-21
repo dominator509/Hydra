@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(*)::BIGINT AS \"count!\"\n            FROM outbox\n            WHERE parked_at IS NOT NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fd8a6a8fcbeb5701f5d5ed6dd62744932a85dcdcd48de73a8624c9c0d0bc577d"
+}

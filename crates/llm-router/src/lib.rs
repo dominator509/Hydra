@@ -1,20 +1,24 @@
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tokenkiller::{
-    ApproxTokenizer, CacheUsage, CompletionRequest, CompletionResponse, Router as TkRouter,
-    RouterError as TkRouterError, Tokenizer,
+    ApproxTokenizer, CacheUsage, CompletionRequest, CompletionResponse, ProviderPrivacy,
+    ProviderProvenance, Router as TkRouter, RouterError as TkRouterError, Tokenizer,
 };
 
 pub mod providers {
     pub mod anthropic;
     pub mod deepseek;
+    pub mod nexus;
     pub mod openai_compat;
 }
 pub mod routes;
 
 pub use routes::{load_routes_yaml, RouteCfg, Routes, RoutesError};
+
+const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tag {
@@ -29,6 +33,7 @@ pub struct ChatRequest {
     pub stable_prefix: String,
     pub tail: String,
     pub max_tokens: u32,
+    pub output_budget_bytes: usize,
     pub stream: bool,
 }
 
@@ -38,6 +43,7 @@ impl From<&CompletionRequest> for ChatRequest {
             stable_prefix: request.prompt.stable_bytes.clone(),
             tail: request.prompt.tail_bytes.clone(),
             max_tokens: request.max_tokens,
+            output_budget_bytes: request.output_budget_bytes,
             stream: true,
         }
     }
@@ -57,6 +63,7 @@ pub struct ProviderResponse {
     pub out_tokens: u64,
     pub cost_cents: u32,
     pub provider: &'static str,
+    pub provenance: ProviderProvenance,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -117,6 +124,21 @@ impl JsonHttpClient {
         }
     }
 
+    pub fn new_with_proxy(proxy_url: Option<&str>) -> Result<Self, String> {
+        let inner = match proxy_url {
+            None => reqwest::Client::new(),
+            Some(proxy_url) => {
+                let proxy = reqwest::Proxy::all(proxy_url)
+                    .map_err(|_| "invalid egress proxy URL".to_owned())?;
+                reqwest::Client::builder()
+                    .proxy(proxy)
+                    .build()
+                    .map_err(|_| "failed to build proxied HTTP client".to_owned())?
+            }
+        };
+        Ok(Self { inner })
+    }
+
     pub async fn post_json(
         &self,
         url: &str,
@@ -129,25 +151,21 @@ impl JsonHttpClient {
         }
 
         let response = request
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .send()
             .await
-            .map_err(|error| format!("request failed for {url}: {error}"))?;
+            .map_err(|_| "request failed".to_owned())?;
         let status = response.status();
         let payload = response
             .text()
             .await
-            .map_err(|error| format!("response read failed for {url}: {error}"))?;
+            .map_err(|_| "response read failed".to_owned())?;
 
         if !status.is_success() {
-            return Err(format!(
-                "upstream status {} for {url}: {}",
-                status.as_u16(),
-                payload
-            ));
+            return Err(format!("upstream status {}", status.as_u16()));
         }
 
-        serde_json::from_str(&payload)
-            .map_err(|error| format!("invalid json from {url}: {error}; payload={payload}"))
+        serde_json::from_str(&payload).map_err(|_| "invalid json response".to_owned())
     }
 
     pub fn json_body(
@@ -235,7 +253,8 @@ impl Router {
                     tracing::warn!(
                         provider = provider.name(),
                         route = %route.name,
-                        "provider failed: {error}"
+                        error = %error,
+                        "provider failed"
                     );
                     last = error;
                 }
@@ -265,6 +284,7 @@ impl TkRouter for Router {
             out_tokens: response.out_tokens,
             cost_cents: response.cost_cents,
             provider: response.provider.to_owned(),
+            provenance: response.provenance,
         })
     }
 }
@@ -305,6 +325,23 @@ pub(crate) fn normalize_base_url(base_url: &str, path: &str) -> String {
     format!("{}{}", base_url.trim_end_matches('/'), path)
 }
 
+pub(crate) fn provider_provenance(
+    provider: &str,
+    model: &str,
+    gateway: &str,
+    privacy: ProviderPrivacy,
+    req: &ChatRequest,
+) -> ProviderProvenance {
+    ProviderProvenance {
+        provider: provider.to_owned(),
+        model: model.to_owned(),
+        gateway: gateway.to_owned(),
+        privacy,
+        requested_max_tokens: req.max_tokens,
+        output_budget_bytes: usize_to_u64(req.output_budget_bytes),
+    }
+}
+
 pub(crate) fn usize_to_u64(value: usize) -> u64 {
     u64::try_from(value).expect("usize to u64 conversion is infallible on supported targets")
 }
@@ -338,7 +375,7 @@ mod tests {
             self.tags
         }
 
-        async fn complete(&self, _req: &ChatRequest) -> Result<ProviderResponse, String> {
+        async fn complete(&self, req: &ChatRequest) -> Result<ProviderResponse, String> {
             if self.fail {
                 Err(format!("{} failed", self.name))
             } else {
@@ -348,6 +385,13 @@ mod tests {
                     out_tokens: 1,
                     cost_cents: 1,
                     provider: self.name,
+                    provenance: provider_provenance(
+                        self.name,
+                        "test-model",
+                        "test",
+                        ProviderPrivacy::Unknown,
+                        req,
+                    ),
                 })
             }
         }
@@ -358,6 +402,7 @@ mod tests {
             stable_prefix: stable.into(),
             tail: tail.into(),
             max_tokens: 256,
+            output_budget_bytes: 2048,
             stream: false,
         }
     }
@@ -427,6 +472,47 @@ routes:
             .expect("fallback chain should reach the second provider");
 
         assert_eq!(response.provider, "private");
+    }
+
+    #[test]
+    fn proxied_http_client_rejects_malformed_proxy_without_echoing_it() {
+        let error = match JsonHttpClient::new_with_proxy(Some("http://user:secret@[invalid")) {
+            Ok(_) => panic!("malformed proxy must fail closed"),
+            Err(error) => error,
+        };
+        assert_eq!(error, "invalid egress proxy URL");
+        assert!(!error.contains("secret"));
+    }
+
+    #[tokio::test]
+    async fn external_errors_do_not_include_endpoint_or_response_body() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("private upstream response"))
+            .mount(&server)
+            .await;
+
+        let error = JsonHttpClient::new()
+            .post_json(
+                &format!("{}/chat/completions", server.uri()),
+                None,
+                &serde_json::json!({"prompt": "private request"}),
+            )
+            .await
+            .expect_err("upstream failure");
+
+        assert_eq!(error, "upstream status 500");
+        assert!(!error.contains(&server.uri()));
+        assert!(!error.contains("private"));
+    }
+
+    #[test]
+    fn external_http_requests_have_a_bounded_deadline() {
+        assert_eq!(HTTP_REQUEST_TIMEOUT, Duration::from_secs(30));
     }
 
     #[derive(Clone, Default)]

@@ -24,6 +24,8 @@ pub struct RelayIteration {
 pub struct RelayHealth {
     running: Arc<AtomicBool>,
     operational: Arc<AtomicBool>,
+    parked: Arc<AtomicBool>,
+    parked_state_known: Arc<AtomicBool>,
 }
 
 impl RelayHealth {
@@ -33,6 +35,23 @@ impl RelayHealth {
 
     pub fn operational(&self) -> bool {
         self.operational.load(Ordering::Acquire)
+    }
+
+    pub fn parked(&self) -> bool {
+        self.parked.load(Ordering::Acquire)
+    }
+
+    pub fn parked_state_known(&self) -> bool {
+        self.parked_state_known.load(Ordering::Acquire)
+    }
+
+    fn set_parked_state(&self, parked: bool) {
+        self.parked.store(parked, Ordering::Release);
+        self.parked_state_known.store(true, Ordering::Release);
+    }
+
+    fn mark_parked_state_unknown(&self) {
+        self.parked_state_known.store(false, Ordering::Release);
     }
 }
 
@@ -57,6 +76,7 @@ pub async fn run_with_health(
     health: RelayHealth,
 ) {
     health.running.store(true, Ordering::Release);
+    refresh_parked_state(&outbox, &health).await;
     let mut interval = tokio::time::interval(RELAY_POLL_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -75,6 +95,11 @@ pub async fn run_with_health(
                     OUTBOX_LEASE_TIMEOUT,
                 ).await {
                     Ok(iteration) if iteration.retried > 0 || iteration.parked > 0 => {
+                        if iteration.parked > 0 {
+                            health.set_parked_state(true);
+                        } else if !health.parked_state_known() {
+                            refresh_parked_state(&outbox, &health).await;
+                        }
                         health.operational.store(true, Ordering::Release);
                         warn!(
                             retried = iteration.retried,
@@ -82,7 +107,12 @@ pub async fn run_with_health(
                             "outbox relay completed with deferred events"
                         );
                     }
-                    Ok(_) => health.operational.store(true, Ordering::Release),
+                    Ok(_) => {
+                        if !health.parked_state_known() {
+                            refresh_parked_state(&outbox, &health).await;
+                        }
+                        health.operational.store(true, Ordering::Release);
+                    }
                     Err(error) => {
                         health.operational.store(false, Ordering::Release);
                         warn!(error = %error, "outbox relay iteration failed");
@@ -93,6 +123,16 @@ pub async fn run_with_health(
     }
     health.running.store(false, Ordering::Release);
     health.operational.store(false, Ordering::Release);
+}
+
+async fn refresh_parked_state(outbox: &OutboxRepo, health: &RelayHealth) {
+    match outbox.parked_count().await {
+        Ok(count) => health.set_parked_state(count > 0),
+        Err(error) => {
+            health.mark_parked_state_unknown();
+            warn!(error = %error, "outbox parked-state check failed");
+        }
+    }
 }
 
 pub async fn publish_once(

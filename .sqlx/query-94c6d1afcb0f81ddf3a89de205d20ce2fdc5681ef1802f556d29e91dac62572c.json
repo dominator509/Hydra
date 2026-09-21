@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                edge.src,\n                edge.rel,\n                edge.dst,\n                edge.body as \"body!: Json<Value>\"\n            FROM edge\n            INNER JOIN entity AS src_entity\n                ON src_entity.id = edge.src\n               AND src_entity.tenant_id = $1\n            INNER JOIN entity AS dst_entity\n                ON dst_entity.id = edge.dst\n               AND dst_entity.tenant_id = $1\n            ORDER BY edge.src, edge.rel, edge.dst\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "src",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "rel",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "dst",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "body!: Json<Value>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "94c6d1afcb0f81ddf3a89de205d20ce2fdc5681ef1802f556d29e91dac62572c"
+}

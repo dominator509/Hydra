@@ -1,0 +1,122 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO bridge_sync_schedule (\n                tenant_id, adapter_id, kind, interval_seconds, page_limit\n            )\n            VALUES ($1, $2, $3, $4, $5)\n            RETURNING\n                id, tenant_id, adapter_id, kind, interval_seconds, page_limit,\n                enabled, next_due_at, lease_token, lease_expires_at,\n                last_envelope_id, last_started_at, last_finished_at, last_error,\n                revision, created_at, updated_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "adapter_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "interval_seconds",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "page_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "next_due_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "lease_token",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 9,
+        "name": "lease_expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_envelope_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 11,
+        "name": "last_started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "last_finished_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "revision",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 16,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b098f14f0db247ee5637f1955f271d96f2f9b547d2510bb10d6080909f7949a5"
+}

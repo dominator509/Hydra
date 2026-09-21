@@ -1,0 +1,16 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: hydra-operator
+  group_by:
+    - alertname
+    - severity
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+# Deliberately receiver-neutral. A staging or production operator must mount
+# a separately reviewed override before claiming notification delivery.
+receivers:
+  - name: hydra-operator

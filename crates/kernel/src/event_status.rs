@@ -19,10 +19,17 @@ impl EventRuntimeStatusService {
 impl fabric::EventStatusService for EventRuntimeStatusService {
     async fn status(&self) -> Result<fabric::EventInfrastructureStatus, fabric::FabricError> {
         let stream_available = self.publisher.check_health().await.is_ok();
-        let relay_operational = self.relay.running() && self.relay.operational();
+        let relay_operational = self.relay.running()
+            && self.relay.operational()
+            && self.relay.parked_state_known()
+            && !self.relay.parked();
         let available = stream_available && relay_operational;
         let reason = if !stream_available {
             Some("canonical_event_stream_unavailable".to_owned())
+        } else if !self.relay.parked_state_known() {
+            Some("canonical_event_relay_status_unavailable".to_owned())
+        } else if self.relay.parked() {
+            Some("canonical_event_relay_parked_event".to_owned())
         } else if !relay_operational {
             Some("canonical_event_relay_unavailable".to_owned())
         } else {

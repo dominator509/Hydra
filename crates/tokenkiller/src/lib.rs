@@ -18,6 +18,6 @@ pub use prefix::{
     Tokenizer, Transcript, BLOCK_TOKENS,
 };
 pub use session::{
-    Clock, CompletionRequest, CompletionResponse, Contracted, ProviderTag, RouteCfg, Router,
-    RouterError, Segments, Session, SystemClock, Tail, TkError,
+    Clock, CompletionRequest, CompletionResponse, Contracted, ProviderPrivacy, ProviderProvenance,
+    ProviderTag, RouteCfg, Router, RouterError, Segments, Session, SystemClock, Tail, TkError,
 };

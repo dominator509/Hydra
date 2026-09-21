@@ -234,7 +234,7 @@ async fn trace_and_event_readiness_required_stream_outage_fails_closed(
     let relay_handle = tokio::spawn(run_with_health(
         shutdown_rx,
         Store::new(db.pool.clone()).outbox,
-        Arc::new(publisher),
+        Arc::new(publisher.clone()),
         relay_health.clone(),
     ));
 
@@ -247,18 +247,66 @@ async fn trace_and_event_readiness_required_stream_outage_fails_closed(
     assert!(status.status().await?.available);
     assert!(required_event_infrastructure_ready(true, &status).await);
 
+    shutdown_tx.send(true)?;
+    relay_handle.await?;
+
+    // A parked canonical row survives relay restarts and must keep readiness
+    // fail-closed until an operator repairs or replaces the event.
+    let parked_event_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO outbox (event_id, subject, event)
+        VALUES ($1, 'hydra.crm.entity.created.v1', '{"not":"canonical"}'::jsonb)
+        "#,
+    )
+    .bind(parked_event_id)
+    .execute(&db.pool)
+    .await?;
+    let parked_iteration = publish_once(
+        &Store::new(db.pool.clone()).outbox,
+        &publisher,
+        100,
+        Duration::from_secs(30),
+    )
+    .await?;
+    assert_eq!(parked_iteration.parked, 1);
+
+    let restarted_health = RelayHealth::default();
+    let restarted_status =
+        EventRuntimeStatusService::new(publisher.clone(), restarted_health.clone());
+    let (restarted_shutdown_tx, restarted_shutdown_rx) = tokio::sync::watch::channel(false);
+    let restarted_relay_handle = tokio::spawn(run_with_health(
+        restarted_shutdown_rx,
+        Store::new(db.pool.clone()).outbox,
+        Arc::new(publisher.clone()),
+        restarted_health.clone(),
+    ));
+    for _ in 0..50 {
+        if restarted_health.running() && restarted_health.operational() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let parked_status = restarted_status.status().await?;
+    assert!(!parked_status.available);
+    assert_eq!(
+        parked_status.reason.as_deref(),
+        Some("canonical_event_relay_parked_event")
+    );
+    assert!(!required_event_infrastructure_ready(true, &restarted_status).await);
+
     context.delete_stream(&stream_name).await?;
-    let unavailable = status.status().await?;
+    let unavailable = restarted_status.status().await?;
     assert!(!unavailable.available);
     assert_eq!(
         unavailable.reason.as_deref(),
         Some("canonical_event_stream_unavailable")
     );
-    assert!(!required_event_infrastructure_ready(true, &status).await);
-    assert!(required_event_infrastructure_ready(false, &status).await);
+    assert!(!required_event_infrastructure_ready(true, &restarted_status).await);
+    assert!(required_event_infrastructure_ready(false, &restarted_status).await);
 
-    shutdown_tx.send(true)?;
-    relay_handle.await?;
+    restarted_shutdown_tx.send(true)?;
+    restarted_relay_handle.await?;
     db.cleanup().await?;
     Ok(())
 }

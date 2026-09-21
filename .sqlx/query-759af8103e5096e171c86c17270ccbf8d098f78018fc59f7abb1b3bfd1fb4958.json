@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO bridge_sync_conflict (\n                    tenant_id, run_id, adapter_id, kind, external_ref,\n                    operation, conflict_kind, reason\n                )\n                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "759af8103e5096e171c86c17270ccbf8d098f78018fc59f7abb1b3bfd1fb4958"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO autonomy_policy_revision (tenant_id, revision, updated_at)\n            VALUES ($1, 1, now())\n            ON CONFLICT (tenant_id) DO UPDATE\n            SET revision = autonomy_policy_revision.revision + 1,\n                updated_at = now()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fb6feceae81277126f87b89b3fd64cbd50baf8da473a218e310e048f6dcd8033"
+}

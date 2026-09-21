@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, start_cursor, status\n            FROM bridge_sync_run\n            WHERE tenant_id = $1 AND id = $2 AND adapter_id = $3 AND kind = $4\n            FOR UPDATE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "start_cursor",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "status",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c0a134c17bc4c2fc16495c88115f4af70c177ee3bf47a6994d83349df3e527d4"
+}

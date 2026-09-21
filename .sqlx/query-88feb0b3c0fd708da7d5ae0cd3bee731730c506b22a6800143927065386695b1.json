@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id, tenant_id, adapter_id, kind, start_cursor, next_cursor,\n                status, applied_upserts, applied_deletes, conflict_count,\n                correlation_id, causation_id, envelope_id, error, started_at,\n                finished_at\n            FROM bridge_sync_run\n            WHERE tenant_id = $1 AND id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "adapter_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "start_cursor",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "next_cursor",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "applied_upserts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "applied_deletes",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "conflict_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "correlation_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "causation_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "envelope_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 13,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "finished_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "88feb0b3c0fd708da7d5ae0cd3bee731730c506b22a6800143927065386695b1"
+}

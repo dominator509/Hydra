@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    hydra_profile: reference
+
+rule_files:
+  - /etc/prometheus/alerts.yaml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  - job_name: hydra-kernel
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - kernel:8080

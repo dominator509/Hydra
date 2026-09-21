@@ -11,7 +11,7 @@ use support::fake_nexus::{FakeNexusHarness, HarnessError};
 use uuid::Uuid;
 
 #[tokio::test]
-async fn fake_nexus_harness_authenticates_distinct_principals_and_caches_jwks(
+async fn e2e_nexus_harness_authenticates_distinct_principals_and_caches_jwks(
 ) -> Result<(), HarnessError> {
     let harness = FakeNexusHarness::start().await?;
     let result = async {

@@ -3,8 +3,10 @@
 //! Uses a custom `Layer` (the Layer trait from tracing-subscriber) to intercept
 //! every tracing event, visit its fields with a redacting visitor, and emit a
 //! JSON line to stdout. Sensitive fields (password, secret, token, api_key,
-//! prompt, tail) are masked as `"***"`. Safe SHA hash fields (prefix_sha,
-//! tail_sha) are always allowed through.
+//! prompt, tail) and dynamic diagnostic fields (error, reason, query, URL,
+//! URI, body, payload, and filesystem path fields are masked as `"***"`.
+//! Safe SHA hash and bounded failure-code fields (prefix_sha, tail_sha,
+//! failure_code) are allowed through.
 
 use std::io::Write;
 use time::OffsetDateTime;
@@ -14,7 +16,10 @@ use tracing_subscriber::Layer;
 use tracing_subscriber::Registry;
 
 /// Field names whose values MUST be redacted from logs.
-const REDACTED: &[&str] = &["password", "secret", "token", "api_key", "prompt", "tail"];
+const REDACTED: &[&str] = &[
+    "password", "secret", "token", "api_key", "prompt", "tail", "error", "reason", "query", "url",
+    "uri", "body", "payload", "path",
+];
 
 /// Initialise the global telemetry subscriber.
 ///
@@ -348,5 +353,58 @@ mod tests {
 
         assert!(!json.contains("sensitive-suffix"), "tail leaked:\n{json}");
         assert!(json.contains("***"), "tail not masked:\n{json}");
+    }
+
+    #[test]
+    fn redaction_masks_dynamic_diagnostic_fields() {
+        let captured: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = test_subscriber(captured.clone());
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        tracing::error!(
+            error = "postgres://hydra:secret@db.invalid/app?password=private",
+            reason = "customer prompt body",
+            query = "SELECT private_customer_data",
+            url = "https://provider.invalid/customers?token=private",
+            uri = "nats://user:secret@nats.invalid",
+            body = "raw customer body",
+            payload = "provider payload",
+            path = "/private/vault.age",
+            failure_code = "database_url_required",
+            "dependency failed"
+        );
+
+        let lines = captured
+            .lock()
+            .expect("captured log lock should not be poisoned");
+        let json = lines.join("\n");
+
+        for sensitive_value in [
+            "postgres://hydra:secret@db.invalid/app?password=private",
+            "customer prompt body",
+            "SELECT private_customer_data",
+            "https://provider.invalid/customers?token=private",
+            "nats://user:secret@nats.invalid",
+            "raw customer body",
+            "provider payload",
+            "/private/vault.age",
+        ] {
+            assert!(
+                !json.contains(sensitive_value),
+                "dynamic diagnostic value leaked into log output: {sensitive_value}\n{json}"
+            );
+        }
+        assert!(
+            json.contains("***"),
+            "dynamic diagnostic fields were not masked:\n{json}"
+        );
+        assert!(
+            json.contains("database_url_required"),
+            "bounded failure code was unexpectedly masked:\n{json}"
+        );
+        assert!(
+            json.contains("dependency failed"),
+            "constant operational message was unexpectedly masked:\n{json}"
+        );
     }
 }

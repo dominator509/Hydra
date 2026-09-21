@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT v\n            FROM tenant_adapter_kv\n            WHERE tenant_id = $1 AND adapter_id = $2 AND k = $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "v",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7fd10b3ed09791c2247509f395a25834efe4c160ad71f855d248a41e75886cb3"
+}

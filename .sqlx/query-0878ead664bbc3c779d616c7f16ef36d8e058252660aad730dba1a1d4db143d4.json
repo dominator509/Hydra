@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO bridge_sync_state (tenant_id, adapter_id, kind)\n            VALUES ($1, $2, $3)\n            ON CONFLICT (tenant_id, adapter_id, kind) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0878ead664bbc3c779d616c7f16ef36d8e058252660aad730dba1a1d4db143d4"
+}

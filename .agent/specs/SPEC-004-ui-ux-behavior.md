@@ -26,6 +26,11 @@ Flash messages carry SPEC-006 code + human text; 403 shows role needed.
 
 ## Security
 CSRF token on all mutations; no entity data in URLs beyond ids; session per SECURITY.md.
+The login view must derive development-only copy and credential placeholders
+from the authenticated runtime configuration. Staging and production must
+never advertise that arbitrary credentials are accepted. The global
+Store-backed request limiter admits login attempts before password
+authentication and fails closed when its authority is unavailable.
 
 ## Performance
 TTFB p95 <150ms; template render <20ms typical.
@@ -35,3 +40,8 @@ E2E script drives: login, create deal, move stage at L2 → appears in Approvals
 
 ## Acceptance
 `bash scripts/test-e2e.sh` → `e2e tests: ok`.
+
+## Supplemental local contract
+`bash scripts/test-shell-accessibility.sh` proves the checked-in Shell
+landmarks, native disclosure controls, and native POST fallbacks. It does not
+replace the browser and staging accessibility review required by EP-010.

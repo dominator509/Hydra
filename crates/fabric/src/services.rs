@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use axum::http::HeaderMap;
 use cdm::Entity;
 use governor::{
     ActionEnvelope, BlastRadius, Cell, Clock, Constitution, Decision, EnvelopeState, Governor,
@@ -10,6 +9,7 @@ use governor::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use tokenkiller::{
     ApproxTokenizer, CacheUsage, CompletionRequest, CompletionResponse, Contract, LedgerRow,
@@ -35,6 +35,9 @@ pub struct AppState {
     pub envelopes: Arc<dyn EnvelopeService>,
     pub tk_stats: Arc<dyn TkStatsService>,
     pub concierge: Arc<dyn ConciergeService>,
+    pub bridge_synthesis: Arc<dyn BridgeSynthesisService>,
+    pub bridge_conformance: Arc<dyn BridgeConformanceService>,
+    pub a2a_tasks: Arc<dyn A2aTaskService>,
     pub authorization: Arc<AuthorizationService>,
     pub capabilities: Arc<CapabilityRegistry>,
     pub external_auth: Option<Arc<OidcAuthenticator>>,
@@ -42,6 +45,8 @@ pub struct AppState {
     pub nexus_control_plane: Arc<NexusControlPlaneConfig>,
     pub event_status: Arc<dyn EventStatusService>,
     pub allow_development_identity: bool,
+    pub secure_cookies: bool,
+    pub tenant_data: Arc<dyn TenantDataService>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -60,6 +65,131 @@ pub trait EventStatusService: Send + Sync {
     async fn status(&self) -> Result<EventInfrastructureStatus, FabricError>;
 }
 
+#[async_trait]
+pub trait A2aTaskService: Send + Sync {
+    async fn create_or_get(
+        &self,
+        request: store::NewA2aTask,
+    ) -> Result<store::A2aTaskResolution, FabricError>;
+
+    async fn get(&self, tenant_id: Uuid, id: Uuid) -> Result<store::A2aTask, FabricError>;
+
+    async fn list(
+        &self,
+        tenant_id: Uuid,
+        context_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<store::A2aTask>, FabricError>;
+
+    async fn transition(
+        &self,
+        request: store::A2aTaskTransition,
+    ) -> Result<store::A2aTask, FabricError>;
+}
+
+/// Proposal-only seam for bounded BridgeEngineer mapping synthesis.
+///
+/// Fabric owns authentication, authorization, and task persistence. The
+/// default implementation is fail-closed; Kernel supplies the configured
+/// TOKENKILLER-backed implementation when a provider chain exists.
+#[async_trait]
+pub trait BridgeSynthesisService: Send + Sync {
+    fn available(&self) -> bool;
+
+    fn availability_reason(&self) -> &'static str;
+
+    async fn synthesize(&self, tenant_id: Uuid, input: Value) -> Result<Value, FabricError>;
+}
+
+/// Read-only adapter contract validation. Kernel supplies the configured
+/// Store-resolved BridgeHost implementation; Fabric owns the A2A boundary.
+#[async_trait]
+pub trait BridgeConformanceService: Send + Sync {
+    fn available(&self) -> bool;
+
+    fn availability_reason(&self) -> &'static str;
+
+    async fn conform(&self, tenant_id: Uuid, input: Value) -> Result<Value, FabricError>;
+}
+
+struct UnavailableBridgeSynthesisService;
+
+#[async_trait]
+impl BridgeSynthesisService for UnavailableBridgeSynthesisService {
+    fn available(&self) -> bool {
+        false
+    }
+
+    fn availability_reason(&self) -> &'static str {
+        "TOKENKILLER bridge_mapping route is not configured"
+    }
+
+    async fn synthesize(&self, _tenant_id: Uuid, _input: Value) -> Result<Value, FabricError> {
+        Err(FabricError::CapabilityUnavailable(
+            self.availability_reason().to_owned(),
+        ))
+    }
+}
+
+struct UnavailableBridgeConformanceService;
+
+#[async_trait]
+impl BridgeConformanceService for UnavailableBridgeConformanceService {
+    fn available(&self) -> bool {
+        false
+    }
+
+    fn availability_reason(&self) -> &'static str {
+        "configured BridgeHost conformance runtime is unavailable"
+    }
+
+    async fn conform(&self, _tenant_id: Uuid, _input: Value) -> Result<Value, FabricError> {
+        Err(FabricError::CapabilityUnavailable(
+            self.availability_reason().to_owned(),
+        ))
+    }
+}
+
+struct UnavailableA2aTaskService;
+
+#[async_trait]
+impl A2aTaskService for UnavailableA2aTaskService {
+    async fn create_or_get(
+        &self,
+        _request: store::NewA2aTask,
+    ) -> Result<store::A2aTaskResolution, FabricError> {
+        Err(FabricError::CapabilityUnavailable(
+            "A2A task persistence is not configured".to_owned(),
+        ))
+    }
+
+    async fn get(&self, _tenant_id: Uuid, _id: Uuid) -> Result<store::A2aTask, FabricError> {
+        Err(FabricError::CapabilityUnavailable(
+            "A2A task persistence is not configured".to_owned(),
+        ))
+    }
+
+    async fn list(
+        &self,
+        _tenant_id: Uuid,
+        _context_id: Option<&str>,
+        _limit: i64,
+    ) -> Result<Vec<store::A2aTask>, FabricError> {
+        Err(FabricError::CapabilityUnavailable(
+            "A2A task persistence is not configured".to_owned(),
+        ))
+    }
+
+    async fn transition(
+        &self,
+        _request: store::A2aTaskTransition,
+    ) -> Result<store::A2aTask, FabricError> {
+        Err(FabricError::CapabilityUnavailable(
+            "A2A task persistence is not configured".to_owned(),
+        ))
+    }
+}
+
 struct UnavailableEventStatusService;
 
 #[async_trait]
@@ -73,6 +203,48 @@ impl EventStatusService for UnavailableEventStatusService {
             relay_operational: false,
             reason: Some("canonical event infrastructure is not configured".to_owned()),
         })
+    }
+}
+
+pub struct StoreA2aTaskService {
+    repo: store::A2aTasksRepo,
+}
+
+impl StoreA2aTaskService {
+    pub fn new(store: store::Store) -> Self {
+        Self {
+            repo: store.a2a_tasks,
+        }
+    }
+}
+
+#[async_trait]
+impl A2aTaskService for StoreA2aTaskService {
+    async fn create_or_get(
+        &self,
+        request: store::NewA2aTask,
+    ) -> Result<store::A2aTaskResolution, FabricError> {
+        Ok(self.repo.create_or_get(request).await?)
+    }
+
+    async fn get(&self, tenant_id: Uuid, id: Uuid) -> Result<store::A2aTask, FabricError> {
+        Ok(self.repo.get(tenant_id, id).await?)
+    }
+
+    async fn list(
+        &self,
+        tenant_id: Uuid,
+        context_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<store::A2aTask>, FabricError> {
+        Ok(self.repo.list(tenant_id, context_id, limit).await?)
+    }
+
+    async fn transition(
+        &self,
+        request: store::A2aTaskTransition,
+    ) -> Result<store::A2aTask, FabricError> {
+        Ok(self.repo.transition(request).await?)
     }
 }
 
@@ -124,6 +296,9 @@ impl AppState {
             envelopes,
             tk_stats,
             concierge,
+            bridge_synthesis: Arc::new(UnavailableBridgeSynthesisService),
+            bridge_conformance: Arc::new(UnavailableBridgeConformanceService),
+            a2a_tasks: Arc::new(UnavailableA2aTaskService),
             authorization: Arc::new(AuthorizationService::default()),
             capabilities: Arc::new(CapabilityRegistry::default()),
             external_auth: None,
@@ -131,11 +306,34 @@ impl AppState {
             nexus_control_plane: Arc::new(NexusControlPlaneConfig::default()),
             event_status: Arc::new(UnavailableEventStatusService),
             allow_development_identity: false,
+            secure_cookies: false,
+            tenant_data: Arc::new(UnavailableTenantDataService),
         }
     }
 
     pub fn with_authorization(mut self, authorization: Arc<AuthorizationService>) -> Self {
         self.authorization = authorization;
+        self
+    }
+
+    pub fn with_a2a_tasks(mut self, a2a_tasks: Arc<dyn A2aTaskService>) -> Self {
+        self.a2a_tasks = a2a_tasks;
+        self
+    }
+
+    pub fn with_bridge_synthesis(
+        mut self,
+        bridge_synthesis: Arc<dyn BridgeSynthesisService>,
+    ) -> Self {
+        self.bridge_synthesis = bridge_synthesis;
+        self
+    }
+
+    pub fn with_bridge_conformance(
+        mut self,
+        bridge_conformance: Arc<dyn BridgeConformanceService>,
+    ) -> Self {
+        self.bridge_conformance = bridge_conformance;
         self
     }
 
@@ -168,6 +366,41 @@ impl AppState {
         self.allow_development_identity = allowed;
         self
     }
+
+    pub fn with_secure_cookies(mut self, enabled: bool) -> Self {
+        self.secure_cookies = enabled;
+        self
+    }
+
+    pub fn with_tenant_data(mut self, tenant_data: Arc<dyn TenantDataService>) -> Self {
+        self.tenant_data = tenant_data;
+        self
+    }
+}
+
+struct UnavailableTenantDataService;
+
+#[async_trait]
+impl TenantDataService for UnavailableTenantDataService {
+    async fn export(
+        &self,
+        _tenant: Uuid,
+        _max_records: i64,
+    ) -> Result<store::TenantDataExport, FabricError> {
+        Err(FabricError::CapabilityUnavailable(
+            "tenant data export is not configured".to_owned(),
+        ))
+    }
+
+    async fn retention_preview(
+        &self,
+        _tenant: Uuid,
+        _age_days: u16,
+    ) -> Result<store::RetentionPreview, FabricError> {
+        Err(FabricError::CapabilityUnavailable(
+            "retention preview is not configured".to_owned(),
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -189,6 +422,20 @@ pub struct GovernedExternalProposal {
     pub request_hash: String,
     pub objective_id: Option<String>,
     pub task_id: Option<String>,
+}
+
+/// Internal, fixed-purpose proposal input used by the durable bridge scheduler.
+/// This is not a general envelope-construction API.
+#[derive(Debug, Clone)]
+pub struct ScheduledBridgeSyncProposal {
+    pub tenant_id: Uuid,
+    pub schedule_id: Uuid,
+    pub adapter_id: String,
+    pub kind: String,
+    pub page_limit: u32,
+    pub slot_key: String,
+    pub correlation_id: String,
+    pub trace: store::TraceContext,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -262,6 +509,7 @@ pub struct AutonomyCellDto {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct BridgeGrantDto {
     pub origins: Vec<String>,
     pub secret_names: Vec<String>,
@@ -275,6 +523,8 @@ pub struct BridgeRegisterRequest {
     pub wiring_ref: String,
     pub rationale: String,
     pub grant: BridgeGrantDto,
+    #[serde(default)]
+    pub config: Value,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -396,6 +646,21 @@ pub trait EntityService: Send + Sync {
 }
 
 #[async_trait]
+pub trait TenantDataService: Send + Sync {
+    async fn export(
+        &self,
+        tenant: Uuid,
+        max_records: i64,
+    ) -> Result<store::TenantDataExport, FabricError>;
+
+    async fn retention_preview(
+        &self,
+        tenant: Uuid,
+        age_days: u16,
+    ) -> Result<store::RetentionPreview, FabricError>;
+}
+
+#[async_trait]
 pub trait AutonomyService: Send + Sync {
     async fn list(&self, tenant: Uuid) -> Result<Vec<AutonomyCellDto>, FabricError>;
 
@@ -419,6 +684,8 @@ pub trait BridgeService: Send + Sync {
     ) -> Result<ActionEnvelope, FabricError>;
 
     async fn status(&self, tenant: Uuid, adapter_id: &str) -> Result<BridgeStatusDto, FabricError>;
+
+    async fn list_status(&self, tenant: Uuid) -> Result<Vec<BridgeStatusDto>, FabricError>;
 
     async fn pause(
         &self,
@@ -500,6 +767,108 @@ impl StoreEnvelopeService {
                 "post-approval Governor returned a non-terminal decision".to_owned(),
             )),
         }
+    }
+
+    /// Create a scheduler-originated bridge sync through the existing
+    /// Governor, envelope, idempotency, and dispatch path.
+    pub async fn propose_scheduled_bridge_sync(
+        &self,
+        proposal: ScheduledBridgeSyncProposal,
+    ) -> Result<ActionEnvelope, FabricError> {
+        validate_scheduled_bridge_sync(&proposal)?;
+        let payload = json!({
+            "adapter_id": proposal.adapter_id,
+            "kind": proposal.kind,
+            "limit": proposal.page_limit,
+        });
+        let request_hash = scheduled_bridge_sync_hash(
+            proposal.tenant_id,
+            proposal.schedule_id,
+            &payload,
+            &proposal.slot_key,
+        )?;
+        let spend = SpendSnapshot {
+            month_to_date_cents: self
+                .store
+                .ledger
+                .month_to_date_cents(proposal.tenant_id, month_start())
+                .await?,
+        };
+        let mut envelope = ActionEnvelope {
+            id: Uuid::new_v4(),
+            tenant: proposal.tenant_id,
+            domain: "bridges".to_owned(),
+            action: "sync_adapter".to_owned(),
+            kind: None,
+            targets: vec![proposal.schedule_id],
+            payload,
+            rationale: "scheduled bridge synchronization".to_owned(),
+            reversal: Reversal::Compensating,
+            blast: BlastRadius {
+                entities: proposal.page_limit,
+                external_sends: 0,
+                money_cents: 0,
+                pii_egress: false,
+            },
+            invocation: governor::InvocationContext {
+                request_id: Some(proposal.slot_key.clone()),
+                correlation_id: Some(proposal.correlation_id),
+                causation_id: None,
+                origin_system: Some("hydra.scheduler".to_owned()),
+                external_actor_id: Some("hydra-scheduler".to_owned()),
+                external_actor_type: Some("hydra_internal_agent".to_owned()),
+                external_binding_id: None,
+                objective_id: None,
+                task_id: None,
+                approval_id: None,
+                idempotency_key: Some(proposal.slot_key.clone()),
+            },
+            state: EnvelopeState::Proposed,
+            history: Vec::new(),
+        };
+
+        let governor = self.governors.governor(proposal.tenant_id).await?;
+        let mut execute_token = None;
+        match governor.evaluate(&envelope, &spend) {
+            Decision::Block(reason) => return Err(FabricError::ConstitutionBlocked(reason)),
+            Decision::SuggestOnly => {}
+            Decision::Queue => {
+                envelope.transition(EnvelopeState::PendingApproval, "governor", &SystemClock)?;
+            }
+            Decision::Execute(token) => {
+                envelope.transition(EnvelopeState::Approved, "governor", &SystemClock)?;
+                execute_token = Some(token);
+            }
+        }
+
+        let resolution = self
+            .store
+            .idempotency
+            .resolve_or_create_envelope_with_trace(
+                store::NewIdempotencyRecord {
+                    tenant_id: proposal.tenant_id,
+                    origin_system: "hydra.scheduler".to_owned(),
+                    idempotency_key: proposal.slot_key,
+                    capability: "hydra.bridges.sync".to_owned(),
+                    request_hash,
+                    envelope_id: envelope.id,
+                },
+                &envelope,
+                Some(&proposal.trace),
+            )
+            .await?;
+
+        if matches!(&resolution, store::IdempotencyResolution::Recorded(_)) {
+            if let (Some(dispatcher), Some(token)) = (&self.dispatcher, execute_token) {
+                dispatcher.dispatch(token).await?;
+            }
+        }
+
+        Ok(self
+            .store
+            .envelopes
+            .get(proposal.tenant_id, resolution.record().envelope_id)
+            .await?)
     }
 }
 
@@ -940,6 +1309,37 @@ impl EntityService for StoreEntityService {
     }
 }
 
+pub struct StoreTenantDataService {
+    repo: store::TenantDataRepo,
+}
+
+impl StoreTenantDataService {
+    pub fn new(store: store::Store) -> Self {
+        Self {
+            repo: store.tenant_data,
+        }
+    }
+}
+
+#[async_trait]
+impl TenantDataService for StoreTenantDataService {
+    async fn export(
+        &self,
+        tenant: Uuid,
+        max_records: i64,
+    ) -> Result<store::TenantDataExport, FabricError> {
+        Ok(self.repo.export(tenant, max_records).await?)
+    }
+
+    async fn retention_preview(
+        &self,
+        tenant: Uuid,
+        age_days: u16,
+    ) -> Result<store::RetentionPreview, FabricError> {
+        Ok(self.repo.retention_preview(tenant, age_days).await?)
+    }
+}
+
 pub struct StoreAutonomyService {
     store: store::Store,
 }
@@ -1015,18 +1415,6 @@ impl StoreBridgeService {
         }
     }
 
-    async fn is_paused(&self, tenant: Uuid, adapter_id: &str) -> Result<bool, FabricError> {
-        let scoped = scoped_bridge_key(tenant, adapter_id);
-        Ok(matches!(
-            self.store
-                .adapter_kv
-                .get(&scoped, "paused")
-                .await?
-                .as_deref(),
-            Some("true")
-        ))
-    }
-
     async fn find_bridge_envelope(
         &self,
         tenant: Uuid,
@@ -1051,9 +1439,7 @@ impl StoreBridgeService {
         tenant: Uuid,
         adapter_id: &str,
     ) -> Result<BridgeStatusDto, FabricError> {
-        let paused = self.is_paused(tenant, adapter_id).await?;
-
-        if let Some(envelope) = self
+        let envelope = self
             .find_bridge_envelope(
                 tenant,
                 adapter_id,
@@ -1062,48 +1448,114 @@ impl StoreBridgeService {
                     EnvelopeState::Approved,
                     EnvelopeState::Executing,
                     EnvelopeState::Proposed,
-                ],
-            )
-            .await?
-        {
-            return Ok(bridge_status_dto(
-                adapter_id,
-                if paused { "paused" } else { "queued" },
-                &envelope,
-            ));
-        }
-
-        if let Some(envelope) = self
-            .find_bridge_envelope(tenant, adapter_id, &[EnvelopeState::Executed])
-            .await?
-        {
-            return Ok(bridge_status_dto(
-                adapter_id,
-                if paused { "paused" } else { "active" },
-                &envelope,
-            ));
-        }
-
-        if let Some(envelope) = self
-            .find_bridge_envelope(
-                tenant,
-                adapter_id,
-                &[
+                    EnvelopeState::Executed,
                     EnvelopeState::Failed,
                     EnvelopeState::RolledBack,
                     EnvelopeState::Rejected,
                 ],
             )
-            .await?
-        {
+            .await?;
+        if let Some(record) = self.store.bridge_adapters.get(tenant, adapter_id).await? {
+            let pending = envelope.as_ref().is_some_and(|value| {
+                !matches!(
+                    value.state,
+                    EnvelopeState::Executed
+                        | EnvelopeState::Failed
+                        | EnvelopeState::RolledBack
+                        | EnvelopeState::Rejected
+                )
+            });
+            return Ok(BridgeStatusDto {
+                adapter_id: record.adapter_id,
+                state: if pending {
+                    "queued".to_owned()
+                } else {
+                    record.state.as_str().to_owned()
+                },
+                envelope_id: envelope.as_ref().map(|value| value.id),
+                envelope_state: envelope
+                    .as_ref()
+                    .map(|value| envelope_state_name(value.state).to_owned()),
+                wiring_ref: Some(record.component_ref),
+            });
+        }
+
+        if let Some(envelope) = envelope.filter(|value| value.action == "deploy_adapter") {
             return Ok(bridge_status_dto(
                 adapter_id,
-                if paused { "paused" } else { "inactive" },
+                if matches!(
+                    envelope.state,
+                    EnvelopeState::Failed | EnvelopeState::RolledBack | EnvelopeState::Rejected
+                ) {
+                    "inactive"
+                } else {
+                    "queued"
+                },
                 &envelope,
             ));
         }
 
         Err(FabricError::NotFound)
+    }
+
+    async fn propose_transition(
+        &self,
+        tenant: Uuid,
+        adapter_id: &str,
+        action: &str,
+    ) -> Result<BridgeStatusDto, FabricError> {
+        let Some(record) = self.store.bridge_adapters.get(tenant, adapter_id).await? else {
+            return Err(FabricError::NotFound);
+        };
+        let expected_state = match action {
+            "pause_adapter" => store::BridgeAdapterState::Active,
+            "resume_adapter" => store::BridgeAdapterState::Paused,
+            _ => {
+                return Err(FabricError::ValidationFailed(
+                    "unsupported bridge lifecycle action".to_owned(),
+                ))
+            }
+        };
+        if record.state != expected_state {
+            return Err(FabricError::ValidationFailed(format!(
+                "bridge adapter must be {} for {action}",
+                expected_state.as_str()
+            )));
+        }
+        let envelope = self
+            .envelopes
+            .propose(
+                tenant,
+                EnvelopeCreateRequest {
+                    domain: "bridges".to_owned(),
+                    action: action.to_owned(),
+                    kind: None,
+                    targets: vec![record.id],
+                    payload: json!({ "adapter_id": adapter_id }),
+                    rationale: format!("governed bridge {action} for adapter {adapter_id}"),
+                    reversal: Reversal::Snapshot,
+                    blast: BlastRadiusDto {
+                        entities: 1,
+                        external_sends: 0,
+                        money_cents: 0,
+                        pii_egress: false,
+                    },
+                },
+            )
+            .await?;
+        let mut status = self.current_status(tenant, adapter_id).await?;
+        status.envelope_id = Some(envelope.id);
+        status.envelope_state = Some(envelope_state_name(envelope.state).to_owned());
+        if !matches!(
+            envelope.state,
+            EnvelopeState::Executed
+                | EnvelopeState::Failed
+                | EnvelopeState::RolledBack
+                | EnvelopeState::Rejected
+        ) {
+            status.state = "queued".to_owned();
+        }
+        Ok(status)
     }
 }
 
@@ -1145,6 +1597,15 @@ impl BridgeService for StoreBridgeService {
         self.current_status(tenant, adapter_id).await
     }
 
+    async fn list_status(&self, tenant: Uuid) -> Result<Vec<BridgeStatusDto>, FabricError> {
+        let records = self.store.bridge_adapters.list_for_tenant(tenant).await?;
+        let mut statuses = Vec::with_capacity(records.len());
+        for record in records {
+            statuses.push(self.current_status(tenant, &record.adapter_id).await?);
+        }
+        Ok(statuses)
+    }
+
     async fn pause(
         &self,
         ctx: &AuthCtx,
@@ -1153,10 +1614,8 @@ impl BridgeService for StoreBridgeService {
         adapter_id: &str,
     ) -> Result<BridgeStatusDto, FabricError> {
         ctx.require_role(Role::Admin)?;
-        let _ = self.current_status(tenant, adapter_id).await?;
-        let scoped = scoped_bridge_key(tenant, adapter_id);
-        self.store.adapter_kv.set(&scoped, "paused", "true").await?;
-        self.current_status(tenant, adapter_id).await
+        self.propose_transition(tenant, adapter_id, "pause_adapter")
+            .await
     }
 
     async fn resume(
@@ -1167,13 +1626,8 @@ impl BridgeService for StoreBridgeService {
         adapter_id: &str,
     ) -> Result<BridgeStatusDto, FabricError> {
         ctx.require_role(Role::Admin)?;
-        let _ = self.current_status(tenant, adapter_id).await?;
-        let scoped = scoped_bridge_key(tenant, adapter_id);
-        self.store
-            .adapter_kv
-            .set(&scoped, "paused", "false")
-            .await?;
-        self.current_status(tenant, adapter_id).await
+        self.propose_transition(tenant, adapter_id, "resume_adapter")
+            .await
     }
 }
 
@@ -1291,6 +1745,7 @@ impl TkRouter for PingRouter {
             usage: CacheUsage::default(),
             out_tokens: 7,
             cost_cents: 0,
+            provenance: Default::default(),
         })
     }
 }
@@ -1311,14 +1766,44 @@ impl LedgerSink for MemoryLedger {
     }
 }
 
-pub fn tenant_from_headers(headers: &HeaderMap) -> Result<Uuid, FabricError> {
-    let raw = headers
-        .get("x-hydra-tenant")
-        .ok_or_else(|| FabricError::ValidationFailed("missing x-hydra-tenant header".into()))?
-        .to_str()
-        .map_err(|_| FabricError::ValidationFailed("x-hydra-tenant must be utf-8".into()))?;
-    Uuid::parse_str(raw)
-        .map_err(|error| FabricError::ValidationFailed(format!("invalid tenant uuid: {error}")))
+fn validate_scheduled_bridge_sync(
+    proposal: &ScheduledBridgeSyncProposal,
+) -> Result<(), FabricError> {
+    if proposal.tenant_id.is_nil()
+        || proposal.schedule_id.is_nil()
+        || proposal.adapter_id.trim().is_empty()
+        || proposal.adapter_id.len() > 128
+        || proposal.kind.trim().is_empty()
+        || proposal.kind.len() > 128
+        || !(1..=100).contains(&proposal.page_limit)
+        || proposal.slot_key.trim().is_empty()
+        || proposal.slot_key.len() > 200
+        || proposal.correlation_id.trim().is_empty()
+        || proposal.correlation_id.len() > 200
+    {
+        return Err(FabricError::ValidationFailed(
+            "invalid scheduled bridge synchronization proposal".to_owned(),
+        ));
+    }
+    proposal.trace.validate()?;
+    Ok(())
+}
+
+fn scheduled_bridge_sync_hash(
+    tenant_id: Uuid,
+    schedule_id: Uuid,
+    payload: &Value,
+    slot_key: &str,
+) -> Result<String, FabricError> {
+    let canonical = serde_json::to_vec(&json!({
+        "tenant_id": tenant_id,
+        "schedule_id": schedule_id,
+        "capability": "hydra.bridges.sync",
+        "payload": payload,
+        "slot_key": slot_key,
+    }))
+    .map_err(|error| FabricError::Internal(format!("hash scheduled proposal: {error}")))?;
+    Ok(format!("{:x}", Sha256::digest(canonical)))
 }
 
 fn validate_request(request: &EnvelopeCreateRequest) -> Result<(), FabricError> {
@@ -1439,6 +1924,11 @@ fn validate_bridge_request(request: &BridgeRegisterRequest) -> Result<(), Fabric
             "bridge grant fuel must be greater than zero".into(),
         ));
     }
+    if !request.config.is_object() {
+        return Err(FabricError::ValidationFailed(
+            "bridge config must be a JSON object".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -1482,6 +1972,7 @@ fn bridge_payload(request: &BridgeRegisterRequest) -> Value {
         "adapter_id": request.adapter_id,
         "wiring_ref": request.wiring_ref,
         "grant": request.grant,
+        "config": request.config,
     })
 }
 
@@ -1489,13 +1980,12 @@ fn bridge_target(_tenant: Uuid, _adapter_id: &str) -> Uuid {
     Uuid::new_v4()
 }
 
-fn scoped_bridge_key(tenant: Uuid, adapter_id: &str) -> String {
-    format!("{tenant}:{adapter_id}")
-}
-
 fn is_bridge_envelope(envelope: &ActionEnvelope, adapter_id: &str) -> bool {
     envelope.domain == "bridges"
-        && envelope.action == "deploy_adapter"
+        && matches!(
+            envelope.action.as_str(),
+            "deploy_adapter" | "pause_adapter" | "resume_adapter"
+        )
         && envelope.payload.get("adapter_id").and_then(Value::as_str) == Some(adapter_id)
 }
 

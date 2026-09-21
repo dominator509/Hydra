@@ -7,11 +7,23 @@
 
 x-kernel-env: &kernel-env
   HYDRA_BIND: "0.0.0.0:8080"
+  HYDRA_SHUTDOWN_TIMEOUT_SECONDS: "${HYDRA_SHUTDOWN_TIMEOUT_SECONDS:-30}"
+  HYDRA_DEPENDENCY_TIMEOUT_SECONDS: "${HYDRA_DEPENDENCY_TIMEOUT_SECONDS:-5}"
   HYDRA_BASE_URL: "${HYDRA_BASE_URL:-https://localhost}"
+  HYDRA_EGRESS_PROXY_URL: "${HYDRA_EGRESS_PROXY_URL:-http://egress-proxy:8888}"
   HYDRA_ENV: "${HYDRA_ENV:-dev}"
   DATABASE_URL: "postgres://hydra:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/hydra"
-  NATS_URL: "nats://nats:4222"
+  # Standalone keeps the bundled development broker; Nexus-connected mode
+  # must provide an operator-owned authenticated TLS broker URL.
+  NATS_URL: "${NATS_URL:-nats://nats:4222}"
+  NATS_CREDS_FILE: "${NATS_CREDS_FILE:-}"
+  NATS_REQUIRE_AUTH: "${NATS_REQUIRE_AUTH:-false}"
+  NATS_TLS_REQUIRED: "${NATS_TLS_REQUIRED:-false}"
+  NATS_TLS_CA_FILE: "${NATS_TLS_CA_FILE:-}"
+  NATS_TLS_CLIENT_CERT_FILE: "${NATS_TLS_CLIENT_CERT_FILE:-}"
+  NATS_TLS_CLIENT_KEY_FILE: "${NATS_TLS_CLIENT_KEY_FILE:-}"
   HYDRA_VAULT_KEY: "${HYDRA_VAULT_KEY:?HYDRA_VAULT_KEY must be set}"
+  HYDRA_VAULT_PATH: "${HYDRA_VAULT_PATH:-/app/data/vault.age}"
   DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
   ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
   OPENAI_COMPAT_BASE_URL: "${OPENAI_COMPAT_BASE_URL:-}"
@@ -57,7 +69,7 @@ services:
       nats:
         condition: service_started
       egress-proxy:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - ingress-internal
@@ -68,7 +80,7 @@ services:
       - 127.0.0.11
 
   caddy:
-    image: caddy:2.8-alpine
+    image: caddy:2.8-alpine@sha256:af32e97399febea808609119bb21544d0265c58a02836576e32a2d082c262c17
     ports:
       - "${CADDY_HTTP_PORT:-80}:80"
       - "${CADDY_HTTPS_PORT:-443}:443"
@@ -76,6 +88,17 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    environment:
+      HYDRA_ENV: "${HYDRA_ENV:-dev}"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ "$$HYDRA_ENV" != "dev" ] && grep -Fq -- "tls internal" /etc/caddy/Caddyfile; then
+          echo "caddy ERROR: tls internal is development-only; provide a production Caddyfile" >&2
+          exit 78
+        fi
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     depends_on:
       kernel:
         condition: service_healthy
@@ -85,7 +108,7 @@ services:
       - ingress-external
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6
     environment:
       POSTGRES_DB: hydra
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
@@ -102,7 +125,7 @@ services:
       - data-internal
 
   nats:
-    image: nats:2.10-alpine
+    image: nats:2.10-alpine@sha256:b83efabe3e7def1e0a4a31ec6e078999bb17c80363f881df35edc70fcb6bb927
     command: ["-js", "-sd", "/data", "-m", "8222"]
     expose:
       - "4222"
@@ -114,19 +137,112 @@ services:
       - events-internal
 
   egress-proxy:
-    image: alpine:3.20
-    command:
-      - sh
-      - -c
-      - apk add --no-cache tinyproxy && exec tinyproxy -d -c /egress-proxy.conf
+    build:
+      context: ..
+      dockerfile: docker/egress-proxy.Dockerfile
+    image: "hydra/egress-proxy:${HYDRA_TAG:-latest}"
     expose:
       - "8888"
-    volumes:
-      - ./egress-proxy.conf:/egress-proxy.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "command -v tinyproxy >/dev/null 2>&1 && busybox nc -z -w 3 127.0.0.1 8888"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 12
     restart: unless-stopped
     networks:
       - proxy-internal
       - egress-external
+
+  prometheus:
+    profiles:
+      - observability
+    image: prom/prometheus:v2.53.0@sha256:075b1ba2c4ebb04bc3a6ab86c06ec8d8099f8fda1c96ef6d104d9bb1def1d8bc
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    expose:
+      - "9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - hydra-prometheus-data:/prometheus
+    depends_on:
+      kernel:
+        condition: service_healthy
+      alertmanager:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - ingress-internal
+      - observability-internal
+
+  alertmanager:
+    profiles:
+      - observability
+    image: prom/alertmanager:v0.27.0@sha256:e13b6ed5cb929eeaee733479dce55e10eb3bc2e9c4586c705a4e8da41e5eacf5
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    expose:
+      - "9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - hydra-alertmanager-data:/alertmanager
+    restart: unless-stopped
+    networks:
+      - observability-internal
+
+  backup-scheduler:
+    profiles:
+      - backup
+    image: postgres:16-alpine@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6
+    command: ["sh", "/usr/local/bin/hydra-backup-scheduler"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: hydra
+      PGUSER: hydra
+      PGPASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+      HYDRA_BACKUP_DIR: /backups
+      HYDRA_BACKUP_INTERVAL_SECONDS: "${HYDRA_BACKUP_INTERVAL_SECONDS:-86400}"
+      HYDRA_BACKUP_SCRIPT: /usr/local/bin/hydra-db-backup.sh
+      HYDRA_BACKUP_RETENTION_SCRIPT: "${HYDRA_BACKUP_RETENTION_SCRIPT:-}"
+      HYDRA_BACKUP_RETENTION_DIR: /backups
+      HYDRA_BACKUP_RETENTION_DAYS: "${HYDRA_BACKUP_RETENTION_DAYS:-0}"
+      HYDRA_BACKUP_RETENTION_COUNT: "${HYDRA_BACKUP_RETENTION_COUNT:-0}"
+      HYDRA_BACKUP_RETENTION_APPLY: "${HYDRA_BACKUP_RETENTION_APPLY:-0}"
+      HYDRA_BACKUP_RETENTION_CONFIRM: "${HYDRA_BACKUP_RETENTION_CONFIRM:-}"
+    volumes:
+      - ../scripts/db-backup.sh:/usr/local/bin/hydra-db-backup.sh:ro
+      - ../scripts/backup-scheduler.sh:/usr/local/bin/hydra-backup-scheduler:ro
+      - ../scripts/backup-retention.sh:/usr/local/bin/hydra-backup-retention:ro
+      - hydra-backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - data-internal
+
+  vault-backup-scheduler:
+    profiles:
+      - vault-backup
+    image: "hydra/kernel:${HYDRA_TAG:-latest}"
+    entrypoint: ["/bin/sh", "/usr/local/bin/hydra-vault-backup-scheduler"]
+    environment:
+      HYDRA_VAULT_PATH: /app/data/vault.age
+      HYDRA_VAULT_KEY: "${HYDRA_VAULT_KEY:?HYDRA_VAULT_KEY must be set}"
+      HYDRA_VAULT_BACKUP_COMMAND: /app/hydra-vault
+      HYDRA_VAULT_BACKUP_DIR: /vault-backups
+      HYDRA_VAULT_BACKUP_INTERVAL_SECONDS: "${HYDRA_VAULT_BACKUP_INTERVAL_SECONDS:-86400}"
+      HYDRA_VAULT_BACKUP_ONCE: "${HYDRA_VAULT_BACKUP_ONCE:-0}"
+    volumes:
+      - hydra-kernel-data:/app/data:ro
+      - hydra-vault-backups:/vault-backups
+      - ../scripts/vault-backup-scheduler.sh:/usr/local/bin/hydra-vault-backup-scheduler:ro
+    network_mode: "none"
+    restart: unless-stopped
 
   migrate:
     profiles:
@@ -148,6 +264,10 @@ volumes:
   hydra-postgres-data:
   hydra-nats-data:
   hydra-kernel-data:
+  hydra-prometheus-data:
+  hydra-alertmanager-data:
+  hydra-backups:
+  hydra-vault-backups:
   caddy-data:
   caddy-config:
 
@@ -164,6 +284,9 @@ networks:
     internal: true
     attachable: true
   proxy-internal:
+    driver: bridge
+    internal: true
+  observability-internal:
     driver: bridge
     internal: true
   ingress-external:

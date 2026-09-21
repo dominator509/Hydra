@@ -97,4 +97,4 @@ rtk proxy cmd /c git rev-list --left-right --count origin/main...HEAD
 
 ## Current Working Assumption
 
-Historical completion boxes are not current-runtime proof. `.agent/state/execplan-index.md` records EP-011 through EP-015 complete and leaves EP-016 deferred, so there is currently no active implementation plan. Read the index evidence and rerun preflight before any later activation.
+Historical completion boxes are not current-runtime proof. `.agent/state/execplan-index.md` is authoritative: EP-011 through EP-056 are complete, EP-010 remains partial on operator-owned production evidence, and there is currently no active implementation plan. EP-056 is the final plan in this finite program; do not activate or create another plan without an explicit user-directed scope reset.

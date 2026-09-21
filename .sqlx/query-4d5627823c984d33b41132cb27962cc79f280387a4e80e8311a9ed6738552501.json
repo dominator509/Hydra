@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT u.id, u.tenant_id, u.username, u.display_name, r.role,\n                   u.disabled_at, u.created_at, u.updated_at\n            FROM hydra_user u\n            JOIN hydra_role r ON r.user_id = u.id AND r.tenant_id = u.tenant_id\n            WHERE u.id = $1\n              AND u.tenant_id = $2\n              AND u.auth_source = 'operator'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "role",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "disabled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "4d5627823c984d33b41132cb27962cc79f280387a4e80e8311a9ed6738552501"
+}

@@ -26,6 +26,12 @@ pub struct EnvelopesRepo {
     pool: PgPool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApprovedEnvelopeRef {
+    pub tenant_id: Uuid,
+    pub envelope_id: Uuid,
+}
+
 impl EnvelopesRepo {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -265,6 +271,49 @@ impl EnvelopesRepo {
         .await?;
 
         rows.into_iter().map(row_to_envelope).collect()
+    }
+
+    /// Return bounded recovery identities without exposing a caller-selectable tenant path.
+    pub async fn list_approved_all(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<ApprovedEnvelopeRef>, StoreError> {
+        let limit = limit.clamp(1, 256);
+        let rows = sqlx::query!(
+            r#"
+            SELECT tenant_id, id
+            FROM envelope
+            WHERE state = 'Approved'
+            ORDER BY updated_at ASC, tenant_id, id
+            LIMIT $1
+            "#,
+            limit,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| ApprovedEnvelopeRef {
+                tenant_id: row.tenant_id,
+                envelope_id: row.id,
+            })
+            .collect())
+    }
+
+    /// Count old in-flight executions so readiness can fail closed without replaying them.
+    pub async fn stale_executing_count(&self) -> Result<i64, StoreError> {
+        let row = sqlx::query!(
+            r#"
+            SELECT COUNT(*)::BIGINT AS "count!"
+            FROM envelope
+            WHERE state = 'Executing'
+              AND updated_at < now() - interval '15 minutes'
+            "#
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.count)
     }
 
     pub async fn get(

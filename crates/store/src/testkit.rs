@@ -45,6 +45,23 @@ impl TestDb {
         })
     }
 
+    /// Return a connection URL restricted to this disposable schema.
+    ///
+    /// The URL is intended for a child test process only. Callers must not
+    /// log it because it may contain the original connection password.
+    pub fn scoped_database_url(&self) -> Result<String, StoreError> {
+        let database_url = env::var("DATABASE_URL")
+            .map_err(|error| StoreError::Invariant(format!("DATABASE_URL missing: {error}")))?;
+        let _: PgConnectOptions = database_url
+            .parse()
+            .map_err(|error| StoreError::Invariant(format!("invalid DATABASE_URL: {error}")))?;
+        let separator = if database_url.contains('?') { '&' } else { '?' };
+        Ok(format!(
+            "{database_url}{separator}options=-c%20search_path%3D{},public",
+            self.schema
+        ))
+    }
+
     pub async fn cleanup(self) -> Result<(), StoreError> {
         self.pool.close().await;
         let drop_schema = format!("DROP SCHEMA IF EXISTS {} CASCADE", self.schema);

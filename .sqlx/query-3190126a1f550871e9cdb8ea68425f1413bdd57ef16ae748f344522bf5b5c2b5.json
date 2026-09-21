@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(*) as \"count!\"\n            FROM outbox\n            WHERE published_at IS NULL\n              AND parked_at IS NULL\n              AND event->>'hydra_tenant_id' = $1::text\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3190126a1f550871e9cdb8ea68425f1413bdd57ef16ae748f344522bf5b5c2b5"
+}

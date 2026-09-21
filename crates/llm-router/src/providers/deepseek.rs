@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use tokenkiller::CacheUsage;
 
 use crate::{
-    extract_choice_text, normalize_base_url, output_tokens, ChatRequest, JsonHttpClient,
-    LlmProvider, Pricing, ProviderResponse, Tag,
+    extract_choice_text, normalize_base_url, output_tokens, provider_provenance, ChatRequest,
+    JsonHttpClient, LlmProvider, Pricing, ProviderResponse, Tag,
 };
 
 const TAGS: [Tag; 2] = [Tag::Caching, Tag::Cheap];
@@ -24,6 +24,19 @@ impl DeepSeekProvider {
             api_key,
             model: "deepseek-chat".into(),
         }
+    }
+
+    pub fn new_with_proxy(
+        base_url: impl Into<String>,
+        api_key: Option<String>,
+        proxy_url: Option<&str>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            http: JsonHttpClient::new_with_proxy(proxy_url)?,
+            base_url: base_url.into(),
+            api_key,
+            model: "deepseek-chat".into(),
+        })
     }
 }
 
@@ -64,6 +77,13 @@ impl LlmProvider for DeepSeekProvider {
             out_tokens,
             cost_cents,
             provider: self.name(),
+            provenance: provider_provenance(
+                self.name(),
+                &self.model,
+                "deepseek",
+                tokenkiller::ProviderPrivacy::Public,
+                req,
+            ),
         })
     }
 }

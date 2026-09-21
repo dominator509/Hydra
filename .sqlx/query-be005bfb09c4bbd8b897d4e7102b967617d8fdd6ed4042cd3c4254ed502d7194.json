@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE hydra_user\n            SET disabled_at = CASE WHEN $3 THEN COALESCE(disabled_at, now()) ELSE NULL END,\n                updated_at = now()\n            WHERE id = $1\n              AND tenant_id = $2\n              AND auth_source = 'operator'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "be005bfb09c4bbd8b897d4e7102b967617d8fdd6ed4042cd3c4254ed502d7194"
+}

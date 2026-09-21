@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id,\n                tenant_id,\n                adapter_id,\n                component_ref,\n                component_sha256,\n                grant_config,\n                config,\n                descriptor,\n                state,\n                last_error,\n                revision,\n                created_at,\n                updated_at\n            FROM bridge_adapter\n            WHERE tenant_id = $1\n            ORDER BY adapter_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "adapter_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "component_ref",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "component_sha256",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "grant_config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "descriptor",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "revision",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "30abf6dc116651e2814d95ff7ffe0b1e883dfb5caf47103c3a672e5602ee62be"
+}

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH updated AS (\n                INSERT INTO rate_limit_window (\n                    key_digest,\n                    window_started_at,\n                    request_count\n                )\n                VALUES ($1, now(), 1)\n                ON CONFLICT (key_digest) DO UPDATE\n                SET window_started_at = CASE\n                        WHEN rate_limit_window.window_started_at <=\n                            now() - ($2::double precision * interval '1 second')\n                        THEN now()\n                        ELSE rate_limit_window.window_started_at\n                    END,\n                    request_count = CASE\n                        WHEN rate_limit_window.window_started_at <=\n                            now() - ($2::double precision * interval '1 second')\n                        THEN 1\n                        WHEN rate_limit_window.request_count <= $3\n                        THEN rate_limit_window.request_count + 1\n                        ELSE rate_limit_window.request_count\n                    END\n                RETURNING window_started_at, request_count\n            )\n            SELECT\n                request_count <= $3 AS \"allowed!\",\n                GREATEST(\n                    1::BIGINT,\n                    CEIL(EXTRACT(EPOCH FROM (\n                        window_started_at\n                        + ($2::double precision * interval '1 second')\n                        - now()\n                    )))::BIGINT\n                ) AS \"retry_after_secs!\"\n            FROM updated\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "allowed!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "retry_after_secs!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Float8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "1f887e7c94fb1afc0c2cbf6dbd9bdfa3ed2dae3e836255613e4edb5d22c69466"
+}

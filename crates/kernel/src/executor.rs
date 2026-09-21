@@ -60,8 +60,25 @@ impl Executor {
         token: ExecuteToken,
         clock: &dyn Clock,
     ) -> Result<governor::ActionEnvelope, ExecuteError> {
-        let tenant = token.tenant();
-        let envelope_id = token.envelope_id();
+        self.execute_by_identity(token.tenant(), token.envelope_id(), clock)
+            .await
+    }
+
+    pub(crate) async fn execute_recovered(
+        &self,
+        tenant: uuid::Uuid,
+        envelope_id: uuid::Uuid,
+        clock: &dyn Clock,
+    ) -> Result<governor::ActionEnvelope, ExecuteError> {
+        self.execute_by_identity(tenant, envelope_id, clock).await
+    }
+
+    async fn execute_by_identity(
+        &self,
+        tenant: uuid::Uuid,
+        envelope_id: uuid::Uuid,
+        clock: &dyn Clock,
+    ) -> Result<governor::ActionEnvelope, ExecuteError> {
         let mut envelope = self.store.envelopes.get(tenant, envelope_id).await?;
         let trace_context = self
             .store

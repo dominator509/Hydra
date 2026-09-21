@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        UPDATE entity\n                        SET deleted_at = now(), version = $3, updated_at = now()\n                        WHERE tenant_id = $1 AND id = $2\n                        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0d66bb8da5462225824309067b75359433cbb4c516a4c97ead2c056fe2e9f646"
+}

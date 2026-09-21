@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, tenant_id, adapter_id, revision, from_state, to_state, event, created_at\n            FROM bridge_adapter_transition\n            WHERE tenant_id = $1 AND adapter_id = $2\n            ORDER BY revision\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "tenant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "adapter_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "revision",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "from_state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "to_state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "event",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "01b96534ded614007c571cd49353ed1af81aab0b6b55653b751fff35a35d8378"
+}

@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::auth::{AuthCtx, Role};
 use crate::error::FabricError;
-use crate::services::{tenant_from_headers, AppState, EntityDeleteResponse};
+use crate::services::{AppState, EntityDeleteResponse};
 
 #[derive(Debug, Deserialize)]
 pub struct EntityListQuery {
@@ -17,15 +17,14 @@ pub struct EntityListQuery {
 
 pub async fn list_entities(
     State(state): State<AppState>,
+    Extension(ctx): Extension<AuthCtx>,
     Path(kind): Path<String>,
     Query(query): Query<EntityListQuery>,
-    headers: HeaderMap,
 ) -> Result<Json<Vec<cdm::Entity>>, FabricError> {
-    let tenant = tenant_from_headers(&headers)?;
     let limit = parse_limit(query.limit)?;
     let entities = state
         .entities
-        .list(tenant, &kind, query.cursor, limit)
+        .list(ctx.tenant, &kind, query.cursor, limit)
         .await?;
     Ok(Json(entities))
 }
@@ -34,22 +33,19 @@ pub async fn create_entity(
     State(state): State<AppState>,
     Extension(ctx): Extension<AuthCtx>,
     Path(kind): Path<String>,
-    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<cdm::Entity>, FabricError> {
     ctx.require_role(Role::Operator)?;
-    let tenant = tenant_from_headers(&headers)?;
-    let entity = state.entities.create(tenant, &kind, body).await?;
+    let entity = state.entities.create(ctx.tenant, &kind, body).await?;
     Ok(Json(entity))
 }
 
 pub async fn get_entity(
     State(state): State<AppState>,
+    Extension(ctx): Extension<AuthCtx>,
     Path((kind, id)): Path<(String, Uuid)>,
-    headers: HeaderMap,
 ) -> Result<Json<cdm::Entity>, FabricError> {
-    let tenant = tenant_from_headers(&headers)?;
-    let entity = state.entities.get(tenant, &kind, id).await?;
+    let entity = state.entities.get(ctx.tenant, &kind, id).await?;
     Ok(Json(entity))
 }
 
@@ -61,11 +57,10 @@ pub async fn patch_entity(
     Json(patch): Json<Value>,
 ) -> Result<Json<cdm::Entity>, FabricError> {
     ctx.require_role(Role::Operator)?;
-    let tenant = tenant_from_headers(&headers)?;
     let version = if_match_version(&headers)?;
     let entity = state
         .entities
-        .patch(tenant, &kind, id, version, patch)
+        .patch(ctx.tenant, &kind, id, version, patch)
         .await?;
     Ok(Json(entity))
 }
@@ -74,11 +69,9 @@ pub async fn delete_entity(
     State(state): State<AppState>,
     Extension(ctx): Extension<AuthCtx>,
     Path((kind, id)): Path<(String, Uuid)>,
-    headers: HeaderMap,
 ) -> Result<Json<EntityDeleteResponse>, FabricError> {
     ctx.require_role(Role::Operator)?;
-    let tenant = tenant_from_headers(&headers)?;
-    let response = state.entities.delete(tenant, &kind, id).await?;
+    let response = state.entities.delete(ctx.tenant, &kind, id).await?;
     Ok(Json(response))
 }
 

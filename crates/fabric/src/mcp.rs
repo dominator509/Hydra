@@ -22,7 +22,9 @@ use uuid::Uuid;
 use crate::auth::PrincipalContext;
 use crate::capabilities::{CapabilityCategory, CapabilityDescriptor, IdempotencySemantics};
 use crate::error::FabricError;
-use crate::services::{AppState, BlastRadiusDto, EnvelopeCreateRequest, GovernedExternalProposal};
+use crate::services::{
+    AppState, BlastRadiusDto, BridgeGrantDto, EnvelopeCreateRequest, GovernedExternalProposal,
+};
 
 pub const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 
@@ -205,6 +207,32 @@ pub(crate) async fn execute_capability(
         "hydra.crm.pipeline_summary" => pipeline_summary(state, principal, arguments).await,
         "hydra.crm.propose_action" => propose_action(state, principal, descriptor, arguments).await,
         "hydra.crm.search" => search_entities(state, principal, arguments).await,
+        "hydra.bridges.deploy" => {
+            propose_bridge_deploy(state, principal, descriptor, arguments).await
+        }
+        "hydra.bridges.pause" => {
+            propose_bridge_transition(
+                state,
+                principal,
+                descriptor,
+                arguments,
+                "pause_adapter",
+                governor::Reversal::Snapshot,
+            )
+            .await
+        }
+        "hydra.bridges.resume" => {
+            propose_bridge_transition(
+                state,
+                principal,
+                descriptor,
+                arguments,
+                "resume_adapter",
+                governor::Reversal::Snapshot,
+            )
+            .await
+        }
+        "hydra.bridges.sync" => propose_bridge_sync(state, principal, descriptor, arguments).await,
         "hydra.envelopes.get" => get_envelope(state, principal, arguments).await,
         "hydra.envelopes.list" => list_envelopes(state, principal, arguments).await,
         _ => Err(FabricError::CapabilityUnavailable(
@@ -295,9 +323,232 @@ fn validate_proposal_input(input: &ProposeActionInput) -> Result<(), FabricError
 }
 
 fn canonical_request_hash(input: &ProposeActionInput) -> Result<String, FabricError> {
+    canonical_json_hash(input)
+}
+
+fn canonical_json_hash<T: Serialize>(input: &T) -> Result<String, FabricError> {
     let bytes = serde_json::to_vec(input)
         .map_err(|error| FabricError::Internal(format!("serialize proposal hash: {error}")))?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BridgeDeployInput {
+    adapter_id: String,
+    wiring_ref: String,
+    grant: BridgeGrantDto,
+    #[serde(default = "default_object")]
+    config: Value,
+    rationale: String,
+    idempotency_key: String,
+}
+
+fn default_object() -> Value {
+    json!({})
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BridgeTransitionInput {
+    adapter_id: String,
+    rationale: String,
+    idempotency_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BridgeSyncInput {
+    adapter_id: String,
+    kind: String,
+    limit: u32,
+    rationale: String,
+    idempotency_key: String,
+}
+
+async fn propose_bridge_deploy(
+    state: &AppState,
+    principal: &PrincipalContext,
+    descriptor: &CapabilityDescriptor,
+    arguments: Value,
+) -> Result<Value, FabricError> {
+    let input: BridgeDeployInput = parse_input(arguments)?;
+    validate_bridge_input(
+        &input.adapter_id,
+        &input.wiring_ref,
+        &input.rationale,
+        &input.idempotency_key,
+    )?;
+    if !input.config.is_object() {
+        return Err(FabricError::ValidationFailed(
+            "bridge config must be a JSON object".to_owned(),
+        ));
+    }
+    let request_hash = canonical_json_hash(&input)?;
+    let grant = serde_json::to_value(&input.grant)
+        .map_err(|error| FabricError::Internal(format!("serialize bridge grant: {error}")))?;
+    propose_bridge(
+        state,
+        principal,
+        descriptor,
+        BridgeProposal {
+            action: "deploy_adapter".to_owned(),
+            reversal: governor::Reversal::Compensating,
+            payload: json!({
+                "adapter_id": input.adapter_id,
+                "wiring_ref": input.wiring_ref,
+                "grant": grant,
+                "config": input.config,
+            }),
+            rationale: input.rationale,
+            idempotency_key: input.idempotency_key,
+            request_hash,
+        },
+    )
+    .await
+}
+
+async fn propose_bridge_transition(
+    state: &AppState,
+    principal: &PrincipalContext,
+    descriptor: &CapabilityDescriptor,
+    arguments: Value,
+    action: &str,
+    reversal: governor::Reversal,
+) -> Result<Value, FabricError> {
+    let input: BridgeTransitionInput = parse_input(arguments)?;
+    validate_bridge_input(
+        &input.adapter_id,
+        &input.adapter_id,
+        &input.rationale,
+        &input.idempotency_key,
+    )?;
+    let request_hash = canonical_json_hash(&input)?;
+    propose_bridge(
+        state,
+        principal,
+        descriptor,
+        BridgeProposal {
+            action: action.to_owned(),
+            reversal,
+            payload: json!({ "adapter_id": input.adapter_id }),
+            rationale: input.rationale,
+            idempotency_key: input.idempotency_key,
+            request_hash,
+        },
+    )
+    .await
+}
+
+async fn propose_bridge_sync(
+    state: &AppState,
+    principal: &PrincipalContext,
+    descriptor: &CapabilityDescriptor,
+    arguments: Value,
+) -> Result<Value, FabricError> {
+    let input: BridgeSyncInput = parse_input(arguments)?;
+    validate_bridge_input(
+        &input.adapter_id,
+        &input.kind,
+        &input.rationale,
+        &input.idempotency_key,
+    )?;
+    if !(1..=100).contains(&input.limit) {
+        return Err(FabricError::ValidationFailed(
+            "bridge sync limit must be 1-100".to_owned(),
+        ));
+    }
+    let request_hash = canonical_json_hash(&input)?;
+    propose_bridge(
+        state,
+        principal,
+        descriptor,
+        BridgeProposal {
+            action: "sync_adapter".to_owned(),
+            reversal: governor::Reversal::Compensating,
+            payload: json!({
+                "adapter_id": input.adapter_id,
+                "kind": input.kind,
+                "limit": input.limit,
+            }),
+            rationale: input.rationale,
+            idempotency_key: input.idempotency_key,
+            request_hash,
+        },
+    )
+    .await
+}
+
+fn validate_bridge_input(
+    adapter_id: &str,
+    component_ref: &str,
+    rationale: &str,
+    idempotency_key: &str,
+) -> Result<(), FabricError> {
+    if adapter_id.trim().is_empty()
+        || adapter_id.len() > 128
+        || component_ref.trim().is_empty()
+        || component_ref.len() > 256
+        || rationale.trim().is_empty()
+        || rationale.len() > 2000
+        || idempotency_key.trim().is_empty()
+        || idempotency_key.len() > 200
+    {
+        return Err(FabricError::ValidationFailed(
+            "invalid governed bridge lifecycle proposal".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+async fn propose_bridge(
+    state: &AppState,
+    principal: &PrincipalContext,
+    descriptor: &CapabilityDescriptor,
+    proposal: BridgeProposal,
+) -> Result<Value, FabricError> {
+    let envelope = state
+        .envelopes
+        .propose_external(
+            principal,
+            descriptor,
+            GovernedExternalProposal {
+                request: EnvelopeCreateRequest {
+                    domain: "bridges".to_owned(),
+                    action: proposal.action,
+                    kind: None,
+                    targets: vec![Uuid::new_v4()],
+                    payload: proposal.payload,
+                    rationale: proposal.rationale,
+                    reversal: proposal.reversal,
+                    blast: BlastRadiusDto {
+                        entities: 1,
+                        external_sends: 0,
+                        money_cents: 0,
+                        pii_egress: false,
+                    },
+                },
+                idempotency_key: proposal.idempotency_key,
+                request_hash: proposal.request_hash,
+                objective_id: None,
+                task_id: None,
+            },
+        )
+        .await?;
+    Ok(json!({
+        "envelope_id": envelope.id,
+        "state": envelope_state_name(envelope.state),
+        "decision": decision_name(envelope.state)
+    }))
+}
+
+struct BridgeProposal {
+    action: String,
+    reversal: governor::Reversal,
+    payload: Value,
+    rationale: String,
+    idempotency_key: String,
+    request_hash: String,
 }
 
 pub(crate) async fn compact_context(
@@ -323,6 +574,7 @@ pub(crate) async fn compact_context(
             })
         })
         .collect::<Vec<_>>();
+    let bridge_health = state.bridges.list_status(principal.hydra_tenant_id).await?;
 
     Ok(json!({
         "tenant": {
@@ -333,10 +585,7 @@ pub(crate) async fn compact_context(
         },
         "pipeline": pipeline,
         "pending_approvals": pending_approvals,
-        "bridge_health": [{
-            "available": false,
-            "reason": "tenant bridge inventory is not exposed until runtime bridge wiring is verified in EP-013"
-        }],
+        "bridge_health": bridge_health,
         "capability_availability": capability_availability
     }))
 }

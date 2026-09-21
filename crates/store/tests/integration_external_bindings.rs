@@ -109,3 +109,43 @@ async fn external_binding_rejects_blank_or_nil_authority_fields(
     db.cleanup().await?;
     result
 }
+
+#[tokio::test]
+async fn external_binding_database_constraint_rejects_unsafe_identifiers(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let db = TestDb::new().await?;
+
+    let result = async {
+        let invalid_provider = sqlx::query(
+            "INSERT INTO external_tenant_binding \
+             (provider, external_tenant_id, external_business_id, hydra_tenant_id) \
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind("nexus\nprovider")
+        .bind("tenant")
+        .bind("business")
+        .bind(Uuid::new_v4())
+        .execute(&db.pool)
+        .await;
+        assert!(invalid_provider.is_err());
+
+        let invalid_business = sqlx::query(
+            "INSERT INTO external_tenant_binding \
+             (provider, external_tenant_id, external_business_id, hydra_tenant_id) \
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind("nexus")
+        .bind("tenant")
+        .bind("x".repeat(513))
+        .bind(Uuid::new_v4())
+        .execute(&db.pool)
+        .await;
+        assert!(invalid_business.is_err());
+
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }
+    .await;
+
+    db.cleanup().await?;
+    result
+}

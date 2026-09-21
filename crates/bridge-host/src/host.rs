@@ -1,15 +1,20 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::header::{HeaderName, HeaderValue};
 use store::AdapterKvRepo;
+use uuid::Uuid;
 use wasmtime::component::{Component, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 use crate::bindings::{self, hydra::bridge::host as host_if, hydra::bridge::types};
 use crate::grants::Grant;
+
+const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_GUEST_LOG_BYTES: usize = 2048;
 
 pub struct HostState {
     pub grant: Grant,
@@ -91,6 +96,40 @@ impl KvStore for StoreKvStore {
     }
 }
 
+#[derive(Clone)]
+pub struct TenantStoreKvStore {
+    tenant_id: Uuid,
+    adapter_id: String,
+    repo: AdapterKvRepo,
+}
+
+impl TenantStoreKvStore {
+    pub fn new(repo: AdapterKvRepo, tenant_id: Uuid, adapter_id: impl Into<String>) -> Self {
+        Self {
+            tenant_id,
+            adapter_id: adapter_id.into(),
+            repo,
+        }
+    }
+}
+
+#[async_trait]
+impl KvStore for TenantStoreKvStore {
+    async fn get(&self, key: &str) -> Result<Option<String>> {
+        self.repo
+            .get_for_tenant(self.tenant_id, &self.adapter_id, key)
+            .await
+            .map_err(anyhow::Error::from)
+    }
+
+    async fn set(&self, key: &str, value: &str) -> Result<()> {
+        self.repo
+            .set_for_tenant(self.tenant_id, &self.adapter_id, key, value)
+            .await
+            .map_err(anyhow::Error::from)
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct StaticSecretSource {
     values: HashMap<String, String>,
@@ -118,6 +157,21 @@ impl ReqwestEgressClient {
     pub fn new(client: reqwest::Client) -> Self {
         Self { client }
     }
+
+    pub fn new_with_proxy(proxy_url: Option<&str>) -> Result<Self> {
+        let client = match proxy_url {
+            None => reqwest::Client::new(),
+            Some(proxy_url) => {
+                let proxy = reqwest::Proxy::all(proxy_url)
+                    .map_err(|_| anyhow::anyhow!("invalid egress proxy URL"))?;
+                reqwest::Client::builder()
+                    .proxy(proxy)
+                    .build()
+                    .map_err(|_| anyhow::anyhow!("build proxied egress client failed"))?
+            }
+        };
+        Ok(Self { client })
+    }
 }
 
 #[async_trait]
@@ -143,7 +197,11 @@ impl EgressClient for ReqwestEgressClient {
             request = request.body(body);
         }
 
-        let response = request.send().await.context("egress request failed")?;
+        let response = request
+            .timeout(HTTP_REQUEST_TIMEOUT)
+            .send()
+            .await
+            .context("egress request failed")?;
         let status = response.status().as_u16();
         let headers = response
             .headers()
@@ -326,7 +384,9 @@ impl host_if::Host for HostState {
                 headers,
                 body,
             })),
-            Err(error) => Ok(Err(types::BridgeError::Upstream(error.to_string()))),
+            Err(_) => Ok(Err(types::BridgeError::Upstream(
+                "egress request failed".to_owned(),
+            ))),
         }
     }
 
@@ -379,21 +439,14 @@ impl host_if::Host for HostState {
 
         match sql.query_json(&query, &params).await {
             Ok(payload) => Ok(Ok(payload)),
-            Err(error) => Ok(Err(types::BridgeError::Upstream(error.to_string()))),
+            Err(_) => Ok(Err(types::BridgeError::Upstream(
+                "replica query failed".to_owned(),
+            ))),
         }
     }
 
     async fn log(&mut self, level: String, message: String) -> Result<()> {
-        let message: String = message
-            .chars()
-            .filter(|ch| !ch.is_control())
-            .take(2048)
-            .collect();
-        match level.as_str() {
-            "error" => tracing::error!(adapter = %self.grant.adapter_id, "{message}"),
-            "warn" => tracing::warn!(adapter = %self.grant.adapter_id, "{message}"),
-            _ => tracing::info!(adapter = %self.grant.adapter_id, "{message}"),
-        }
+        emit_guest_log(&self.grant.adapter_id, &level, &message);
         Ok(())
     }
 
@@ -405,8 +458,54 @@ impl host_if::Host for HostState {
     }
 }
 
+fn emit_guest_log(adapter_id: &str, level: &str, message: &str) {
+    let message_bytes = bounded_guest_log_bytes(message);
+    let fields = tracing::info_span!("bridge_guest_log", adapter = %adapter_id);
+    let _entered = fields.enter();
+    match level {
+        "error" => tracing::error!(
+            guest_message_bytes = message_bytes,
+            "adapter guest log suppressed"
+        ),
+        "warn" => tracing::warn!(
+            guest_message_bytes = message_bytes,
+            "adapter guest log suppressed"
+        ),
+        _ => tracing::info!(
+            guest_message_bytes = message_bytes,
+            "adapter guest log suppressed"
+        ),
+    }
+}
+
+fn bounded_guest_log_bytes(message: &str) -> usize {
+    let mut total: usize = 0;
+    for character in message.chars().filter(|character| !character.is_control()) {
+        let bytes = character.len_utf8();
+        if total.saturating_add(bytes) > MAX_GUEST_LOG_BYTES {
+            break;
+        }
+        total += bytes;
+    }
+    total
+}
+
 fn redact_url(url: &str) -> String {
-    url.split('?').next().unwrap_or(url).to_owned()
+    let without_query = url.split(['?', '#']).next().unwrap_or_default();
+    let Some((scheme, authority_and_path)) = without_query.split_once("://") else {
+        return "<redacted-url>".to_owned();
+    };
+    let authority = authority_and_path
+        .split('/')
+        .next()
+        .unwrap_or_default()
+        .rsplit('@')
+        .next()
+        .unwrap_or_default();
+    if scheme.is_empty() || authority.is_empty() {
+        return "<redacted-url>".to_owned();
+    }
+    format!("{scheme}://{authority}")
 }
 
 #[cfg(test)]
@@ -500,6 +599,88 @@ mod tests {
             wasi: WasiCtxBuilder::new().build(),
             table: ResourceTable::new(),
         }
+    }
+
+    #[test]
+    fn reqwest_egress_client_rejects_malformed_proxy_without_echoing_it() {
+        let error = match ReqwestEgressClient::new_with_proxy(Some("http://user:secret@[invalid")) {
+            Ok(_) => panic!("malformed proxy must fail closed"),
+            Err(error) => error,
+        };
+        assert_eq!(error.to_string(), "invalid egress proxy URL");
+    }
+
+    #[test]
+    fn external_http_requests_have_a_bounded_deadline() {
+        assert_eq!(HTTP_REQUEST_TIMEOUT, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn blocked_url_diagnostics_strip_credentials_query_and_path() {
+        assert_eq!(
+            redact_url("https://user:secret@blocked.example/api?token=private#fragment"),
+            "https://blocked.example"
+        );
+        assert_eq!(redact_url("not a URL"), "<redacted-url>");
+    }
+
+    #[test]
+    fn guest_log_output_excludes_payload_content() {
+        use std::io::{self, Write};
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::fmt::MakeWriter;
+
+        #[derive(Clone)]
+        struct Capture(Arc<Mutex<Vec<u8>>>);
+
+        impl<'a> MakeWriter<'a> for Capture {
+            type Writer = CaptureWriter;
+
+            fn make_writer(&'a self) -> Self::Writer {
+                CaptureWriter(self.0.clone())
+            }
+        }
+
+        struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
+
+        impl Write for CaptureWriter {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0
+                    .lock()
+                    .expect("capture lock should not be poisoned")
+                    .extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(Capture(captured.clone()))
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        emit_guest_log(
+            "memcrm",
+            "warn",
+            "private customer prompt with bearer secret",
+        );
+
+        let output = String::from_utf8(
+            captured
+                .lock()
+                .expect("capture lock should not be poisoned")
+                .clone(),
+        )
+        .expect("captured log should be UTF-8");
+        assert!(output.contains("adapter guest log suppressed"));
+        assert!(output.contains("guest_message_bytes=42"));
+        assert!(!output.contains("private customer prompt"));
+        assert!(!output.contains("bearer secret"));
     }
 
     fn memcrm_component_path() -> PathBuf {

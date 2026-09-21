@@ -6,20 +6,20 @@ pub mod login;
 pub mod pipelines;
 pub mod workspace;
 
-use axum::http::{HeaderMap, HeaderValue};
+use axum::extract::{Request, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::middleware::{from_fn_with_state, Next};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use uuid::Uuid;
 
 use crate::csrf::CsrfToken;
 use crate::flash::FlashMessage;
-use fabric::{AuthCtx, Session};
+use fabric::AuthCtx;
 
 pub fn router(state: fabric::AppState) -> Router {
-    Router::new()
-        // Login / Logout
-        .route("/login", get(login::login_page).post(login::login_action))
-        .route("/logout", post(login::logout_action))
+    let protected = Router::new()
         // Workspace
         .route("/", get(workspace::workspace_home))
         .route("/workspace", get(workspace::workspace_home))
@@ -47,21 +47,44 @@ pub fn router(state: fabric::AppState) -> Router {
         .route("/bridges/:id/resume", post(bridges::resume_bridge))
         // Agents
         .route("/agents", get(agents::agents_console))
+        .route_layer(from_fn_with_state(state.clone(), shell_auth_middleware))
+        .with_state(state.clone());
+
+    Router::new()
+        // Login / Logout
+        .route("/login", get(login::login_page).post(login::login_action))
+        .route("/logout", post(login::logout_action))
         .with_state(state)
+        .merge(protected)
+}
+
+async fn shell_auth_middleware(
+    State(state): State<fabric::AppState>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let Some(token) = session_token(request.headers()) else {
+        return Redirect::to("/login").into_response();
+    };
+    if token.is_empty() || token.len() > 512 {
+        return Redirect::to("/login").into_response();
+    }
+
+    let session = match state.auth.lookup(&token).await {
+        Ok(Some(session)) => session,
+        Ok(None) => return Redirect::to("/login").into_response(),
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    request.extensions_mut().insert(AuthCtx {
+        principal: format!("user:{}", session.username),
+        tenant: session.tenant_id,
+        session: Some(session),
+    });
+    next.run(request).await
 }
 
 const SESSION_COOKIE: &str = "hydra-session";
-
-pub fn session_tenant(headers: &HeaderMap) -> Option<Uuid> {
-    let cookie = headers.get("cookie")?.to_str().ok()?;
-    for pair in cookie.split(';') {
-        let pair = pair.trim();
-        if let Some(value) = pair.strip_prefix("hydra-session=") {
-            return Uuid::parse_str(value).ok();
-        }
-    }
-    None
-}
 
 pub fn session_cookie_value(headers: &HeaderMap) -> Option<String> {
     let cookie = headers.get("cookie")?.to_str().ok()?;
@@ -79,23 +102,30 @@ pub fn session_token(headers: &HeaderMap) -> Option<String> {
     session_cookie_value(headers)
 }
 
-pub fn set_session_cookie(token: &str) -> HeaderValue {
+pub fn set_session_cookie(token: &str, secure: bool) -> HeaderValue {
+    let secure_attribute = if secure { "; Secure" } else { "" };
     HeaderValue::from_str(&format!(
-        "{}={}; Path=/; HttpOnly; SameSite=Lax",
-        SESSION_COOKIE, token
+        "{}={}; Path=/; HttpOnly; SameSite=Lax{}",
+        SESSION_COOKIE, token, secure_attribute
     ))
     .expect("session cookie value should be valid ASCII")
 }
 
-pub fn clear_session_cookie() -> HeaderValue {
-    HeaderValue::from_str(&format!("{}=; Path=/; Max-Age=0; HttpOnly", SESSION_COOKIE))
-        .expect("clear cookie value should be valid ASCII")
+pub fn clear_session_cookie(secure: bool) -> HeaderValue {
+    let secure_attribute = if secure { "; Secure" } else { "" };
+    HeaderValue::from_str(&format!(
+        "{}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax{}",
+        SESSION_COOKIE, secure_attribute
+    ))
+    .expect("clear cookie value should be valid ASCII")
 }
 
-pub fn csrf_cookie_header(token: &CsrfToken) -> HeaderValue {
+pub fn csrf_cookie_header(token: &CsrfToken, secure: bool) -> HeaderValue {
+    let secure_attribute = if secure { "; Secure" } else { "" };
     HeaderValue::from_str(&format!(
-        "hydra-csrf={}; Path=/; HttpOnly; SameSite=Lax",
-        token.as_str()
+        "hydra-csrf={}; Path=/; HttpOnly; SameSite=Lax{}",
+        token.as_str(),
+        secure_attribute
     ))
     .expect("csrf cookie header should be valid ASCII")
 }
@@ -136,28 +166,6 @@ pub fn verify_csrf_cookie(headers: &HeaderMap, form_token: &str) -> Result<(), F
     }
 }
 
-pub fn tenant_or_default(headers: &HeaderMap) -> Uuid {
-    session_tenant(headers).unwrap_or_else(|| {
-        Uuid::parse_str("00000000-0000-0000-0000-000000000001")
-            .expect("hardcoded dev tenant uuid should be valid")
-    })
-}
-
-/// Build an AuthCtx from request headers for shell routes.
-///
-/// For now, session lookup via SessionStore is future work.
-/// The session is set to None until auth middleware is wired.
-pub fn auth_ctx_from_headers(headers: &HeaderMap) -> AuthCtx {
-    let session: Option<Session> = None;
-    AuthCtx {
-        principal: session_tenant(headers)
-            .map(|t| format!("user:{}", t))
-            .unwrap_or_else(|| "anonymous".into()),
-        tenant: tenant_or_default(headers),
-        session,
-    }
-}
-
 pub struct PageCtx {
     pub title: String,
     pub tenant: String,
@@ -167,12 +175,12 @@ pub struct PageCtx {
 }
 
 impl PageCtx {
-    pub fn new(title: &str, page: &str, headers: &HeaderMap, token: &CsrfToken) -> Self {
+    pub fn new(title: &str, page: &str, tenant: Option<Uuid>, token: &CsrfToken) -> Self {
         Self {
             title: title.to_owned(),
-            tenant: session_tenant(headers)
+            tenant: tenant
                 .map(|t| t.to_string())
-                .unwrap_or_else(|| "00000000-0000-0000-0000-000000000001".to_string()),
+                .unwrap_or_else(|| "unauthenticated".to_string()),
             current_page: page.to_owned(),
             flash: Vec::new(),
             csrf: token.hidden_field(),
@@ -182,5 +190,43 @@ impl PageCtx {
     pub fn with_flash(mut self, msg: FlashMessage) -> Self {
         self.flash.push(msg);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secure_cookie_attributes_are_environment_selectable() {
+        let token = CsrfToken::generate();
+
+        assert!(!set_session_cookie("session-token", false)
+            .to_str()
+            .expect("cookie is valid ASCII")
+            .contains("Secure"));
+        assert!(set_session_cookie("session-token", true)
+            .to_str()
+            .expect("cookie is valid ASCII")
+            .contains("; Secure"));
+        assert!(clear_session_cookie(true)
+            .to_str()
+            .expect("cookie is valid ASCII")
+            .contains("; Secure"));
+        assert!(csrf_cookie_header(&token, true)
+            .to_str()
+            .expect("cookie is valid ASCII")
+            .contains("; Secure"));
+    }
+
+    #[test]
+    fn session_cookie_is_not_tenant_authority() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::COOKIE,
+            HeaderValue::from_static("hydra-session=not-a-tenant"),
+        );
+
+        assert_eq!(session_token(&headers).as_deref(), Some("not-a-tenant"));
     }
 }

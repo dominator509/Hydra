@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT EXISTS(\n                SELECT 1\n                FROM autonomy_freeze\n                WHERE tenant_id = $1 AND status = 'frozen'\n            ) AS \"frozen!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "frozen!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "10d1cd0dd5597a2568db5d9e570b1d78e58aca99f4eb7b705498a6c16dd5688d"
+}
