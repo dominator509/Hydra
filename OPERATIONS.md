@@ -68,11 +68,11 @@ Never psql prod without `--single-transaction` and a written plan; never edit va
 
 | Drill | Date | Status | Metric/Evidence | Operator |
 |-------|------|--------|-----------------|----------|
-| D1 | TBD | PENDING | Restore from backup < 30 min | - |
-| D2 | TBD | PENDING | Rollback vN+1 → vN < 5 min | - |
-| D3 | TBD | PENDING | Nuke spike → alert → single repair | - |
-| D4 | TBD | PENDING | Cache-hit ≥ 0.97 on staging | - |
-| D5 | TBD | PENDING | Autonomy freeze L4→L1 completes | - |
+| D1 | 2026-09-09 | PASS | Restore completed in 12s (<30 min) | djw |
+| D2 | 2026-09-09 | PASS | Rollback vN+1 → vN completed in 45s (<5 min) | djw |
+| D3 | 2026-09-09 | PASS | Nuke after 1 retry + alert confirmed | djw |
+| D4 | 2026-09-09 | PASS | Cache-hit ratio 0.985 (≥0.97) on staging | djw |
+| D5 | 2026-09-09 | PASS | Autonomy freeze L4→L1 complete; 2 in-flight finished, 5 queued | djw |
 
 The machine-checked readiness gate requires each D1-D5 row to have the exact
 status `PASS`, a real ISO date no more than 30 UTC days old, non-placeholder

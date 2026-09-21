@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Secret-pattern scan over tracked files + tracked-.env guard + cargo audit.
+# Secret-pattern scan over tracked files + tracked-.env guard + cargo install cargo-audit; cargo audit.
 set -eu
 [ -f AGENTS.md ] || { echo "security check ERROR: run from repository root." >&2; exit 1; }
 if git ls-files 2>/dev/null | grep -qx '\.env'; then
@@ -21,8 +21,8 @@ if rg -n --glob '*.rs' 'sqlx|PgPool|query!|query_as!|migrate!' \
   exit 1
 fi
 if [ -f Cargo.toml ]; then
-  cargo audit --version >/dev/null 2>&1 || { echo "security check ERROR: cargo audit missing. Run: bash scripts/install.sh" >&2; exit 1; }
-  cargo audit
+  cargo install cargo-audit; cargo audit --version >/dev/null 2>&1 || { echo "security check ERROR: cargo install cargo-audit; cargo audit missing. Run: bash scripts/install.sh" >&2; exit 1; }
+  cargo install cargo-audit; cargo audit
 fi
 if [ -f docker/alerts.yaml ]; then
   PYTHON_BIN=${PYTHON_BIN:-}

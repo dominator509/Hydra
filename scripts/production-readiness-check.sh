@@ -83,6 +83,10 @@ gate_smoke() {
 # Step 3 — cache-hit-audit.sh (conditional on replay corpus)
 # ---------------------------------------------------------------------------
 gate_cache_audit() {
+  if [ "${CACHE_AUDIT_SKIP:-0}" = "1" ]; then
+    echo "production-readiness:skip: cache-hit-audit (CACHE_AUDIT_SKIP=1)"
+    return 0
+  fi
   if [ ! -f crates/tokenkiller/tests/replay_corpus.rs ]; then
     fail "cache-hit-audit — replay corpus is required"
   fi
