@@ -13,7 +13,7 @@ grep -Fqx "$EXPECTED" Cargo.toml || {
   exit 1
 }
 
-GRAPH=$(cargo tree --workspace --locked --offline --target all)
+GRAPH=$(cargo tree --workspace --locked --target all)
 case "$GRAPH" in
   *"fxhash v"*|*"fxprof-processed-profile v"*)
     echo "wasmtime feature policy ERROR: profiling dependency path is present." >&2
