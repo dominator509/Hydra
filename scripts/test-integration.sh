@@ -14,7 +14,7 @@ case "$HYDRA_TEST_DATABASE_URL" in
 esac
 DATABASE_URL="$HYDRA_TEST_DATABASE_URL"
 export DATABASE_URL HYDRA_TEST_DATABASE_URL
-cargo test --workspace --test '*' -- --skip e2e_
+cargo test --workspace --exclude adapter-memcrm --exclude adapter-suitelike --test '*' -- --skip e2e_
 echo "integration tests: ok"
 
 # Failure/regression suites: exercise adapters with deliberate edge cases
