@@ -25,6 +25,9 @@ allow = [
 confidence-threshold = 0.8
 exceptions = [
   { crate = "webpki-roots@1.0.8", allow = ["CDLA-Permissive-2.0"] },
+  # Pulled in by the vault/age dependency tree (via rustls 0.23); same
+  # CDLA-Permissive-2.0 license as the 1.0.8 exception above.
+  { crate = "webpki-roots@0.26.11", allow = ["CDLA-Permissive-2.0"] },
 ]
 
 [licenses.private]
