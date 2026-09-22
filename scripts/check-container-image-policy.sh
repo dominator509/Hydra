@@ -59,7 +59,7 @@ check_from_lines docker/Dockerfile
 check_from_lines docker/egress-proxy.Dockerfile
 check_package_pins docker/Dockerfile \
   'pkg-config=1.8.1-4' \
-  'libssl-dev=3.5.6-1~deb13u2' \
+  'libssl-dev=3.5.7-1~deb13u2' \
   'ca-certificates=20250419~deb12u1' \
   'curl=7.88.1-10+deb12u15'
 check_package_pins docker/egress-proxy.Dockerfile 'tinyproxy=1.11.2-r0'

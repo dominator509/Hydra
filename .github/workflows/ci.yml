@@ -51,6 +51,10 @@ jobs:
           exit 1
       - name: Install repo toolchain
         run: bash scripts/install.sh
+      - name: Set up database
+        # sqlx compile-time query checks run against DATABASE_URL, so the
+        # service database must be migrated before any cargo step.
+        run: bash scripts/db-setup.sh
       - name: Nexus auth and MCP contracts
         run: |
           cargo test -p fabric nexus_auth -- --nocapture

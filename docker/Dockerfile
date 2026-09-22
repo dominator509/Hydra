@@ -7,7 +7,7 @@ ARG WASM_TOOLS_VERSION=1.240.0
 # Keep release-image package inputs explicit. Refreshing these pins is a
 # deliberate release change, not an incidental package-index update.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config=1.8.1-4 libssl-dev=3.5.6-1~deb13u2 \
+    pkg-config=1.8.1-4 libssl-dev=3.5.7-1~deb13u2 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN rustup target add wasm32-wasip2 \

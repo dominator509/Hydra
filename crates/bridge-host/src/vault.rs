@@ -384,7 +384,7 @@ fn replace_file(temp_path: &Path, path: &Path, replace_existing: bool) -> io::Re
             return fs::rename(temp_path, path);
         }
         fs::hard_link(temp_path, path)?;
-        return fs::remove_file(temp_path);
+        fs::remove_file(temp_path)
     }
 
     #[cfg(windows)]
