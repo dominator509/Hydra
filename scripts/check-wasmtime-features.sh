@@ -7,7 +7,7 @@ set -eu
   exit 1
 }
 
-EXPECTED='wasmtime = { version = "=36.0.13", default-features = false, features = ["async", "component-model", "cranelift", "runtime", "std"] }'
+EXPECTED='wasmtime = { version = "=36.0.14", default-features = false, features = ["async", "component-model", "cranelift", "runtime", "std"] }'
 grep -Fqx "$EXPECTED" Cargo.toml || {
   echo "wasmtime feature policy ERROR: direct Wasmtime feature boundary drifted." >&2
   exit 1

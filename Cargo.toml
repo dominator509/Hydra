@@ -54,8 +54,8 @@ tracing = { version = "0.1.40" }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt", "json", "registry"] }
 unicode-normalization = { version = "0.1.25" }
 uuid = { version = "1.10.0", features = ["serde", "v4"] }
-wasmtime = { version = "=36.0.13", default-features = false, features = ["async", "component-model", "cranelift", "runtime", "std"] }
-wasmtime-wasi = { version = "=36.0.13" }
+wasmtime = { version = "=36.0.14", default-features = false, features = ["async", "component-model", "cranelift", "runtime", "std"] }
+wasmtime-wasi = { version = "=36.0.14" }
 windows-sys = { version = "=0.61.2" }
 
 [workspace.lints.rust]
